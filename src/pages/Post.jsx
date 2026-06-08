@@ -3,6 +3,7 @@ import Header from "../components/Header";
 import { useLang } from "../contexts/LangContext";
 import { strings } from "../i18n/strings";
 import posts from "../data/posts/index.js";
+import { usePageTitle } from "../hooks/usePageTitle.js";
 
 function formatDate(iso, lang) {
   return new Date(iso).toLocaleDateString(lang === "es" ? "es-MX" : "en-US", {
@@ -17,13 +18,16 @@ export default function Post() {
   const { lang } = useLang();
   const t = strings[lang];
   const index = posts.findIndex((p) => p.slug === slug);
+  /* const post = posts.find((p) => p.slug === slug); */
 
   if (index === -1) {
     return (
       <div className="not-found">
         <h2>{t.notFound}</h2>
         <p>{t.notFoundDesc}</p>
-        <Link to="/" className="home-btn">{t.backHome}</Link>
+        <Link to="/" className="home-btn">
+          {t.backHome}
+        </Link>
       </div>
     );
   }
@@ -32,10 +36,14 @@ export default function Post() {
   const prev = posts[index + 1] ?? null;
   const next = posts[index - 1] ?? null;
 
+  usePageTitle(post ? `${post.title[lang]}` : "Kubernauta");
+
   return (
     <>
       <Header>
-        <Link to="/" className="home-btn">← {t.home}</Link>
+        <Link to="/" className="home-btn">
+          ← {t.home}
+        </Link>
         <span className="site-logo">Kubernauta</span>
       </Header>
 
@@ -46,7 +54,9 @@ export default function Post() {
             <h1>{post.title[lang]}</h1>
             <div className="tags">
               {post.tags.map((tag) => (
-                <span key={tag} className="tag">{tag}</span>
+                <span key={tag} className="tag">
+                  {tag}
+                </span>
               ))}
             </div>
           </div>
