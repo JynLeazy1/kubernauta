@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useLang } from '../contexts/LangContext.jsx'
 import courses from '../data/courses/index.js'
@@ -7,10 +7,6 @@ import posts from '../data/posts/index.js'
 
 function SidebarGroup({ defaultOpen, label, icon, children }) {
   const [open, setOpen] = useState(defaultOpen)
-
-  useEffect(() => {
-    if (defaultOpen) setOpen(true)
-  }, [defaultOpen])
 
   return (
     <div className={`sidebar-group ${open ? 'sidebar-group--open' : ''}`}>

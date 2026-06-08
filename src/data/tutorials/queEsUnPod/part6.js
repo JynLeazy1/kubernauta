@@ -276,7 +276,7 @@ args: ["-g", "daemon off;"]</code></pre>
           <p>Para verificar que esto no es teoría, tomamos un Pod del cluster con sus campos declarados y leemos los archivos del kernel correspondientes. La estructura de cgroups que kubelet construye fue cubierta a fondo en <a href="/tutorial/que-es-realmente-un-contenedor/cgroups">la parte 6 del tutorial de contenedores</a>; aquí solo resumimos los paths.</p>
 
           <pre><code># En el nodo donde corre el Pod:
-POD=\$(kubectl get pod nginx -o jsonpath='{.metadata.uid}' | tr - _)
+POD=$(kubectl get pod nginx -o jsonpath='{.metadata.uid}' | tr - _)
 QOS=burstable    # o besteffort / guaranteed según resources
 SLICE=/sys/fs/cgroup/kubepods.slice/kubepods-\${QOS}.slice/\\
 kubepods-\${QOS}-pod\${POD}.slice
@@ -298,7 +298,7 @@ cat \${SCOPE}/cpu.weight
 # 11               ← derivado de requests.cpu (bajo)
 
 # Verificar capabilities efectivas
-cat /proc/\$(pgrep -f nginx | head -1)/status | grep Cap
+cat /proc/$(pgrep -f nginx | head -1)/status | grep Cap
 # CapEff: 00000000a80425fb   ← reducido por capabilities.drop/add</code></pre>
 
           <p>Los valores que escribiste en el YAML aparecen literalmente en archivos del kernel. No hay capa intermedia oculta — el "spec" del Pod es una receta que se materializa en cgroup files, mount entries, capability sets y argumentos de <code>execve</code>. Cualquier inconsistencia entre lo declarado y lo aplicado se ve aquí, antes de que la app diga "algo no funciona".</p>
@@ -580,7 +580,7 @@ args: ["-g", "daemon off;"]</code></pre>
           <p>To confirm this is not theory, take a Pod from the cluster with its declared fields and read the corresponding kernel files. The cgroup structure kubelet builds is covered in depth in <a href="/tutorial/que-es-realmente-un-contenedor/cgroups">Part 6 of the containers tutorial</a>; here we just summarise the paths.</p>
 
           <pre><code># On the node where the Pod runs:
-POD=\$(kubectl get pod nginx -o jsonpath='{.metadata.uid}' | tr - _)
+POD=$(kubectl get pod nginx -o jsonpath='{.metadata.uid}' | tr - _)
 QOS=burstable    # or besteffort / guaranteed depending on resources
 SLICE=/sys/fs/cgroup/kubepods.slice/kubepods-\${QOS}.slice/\\
 kubepods-\${QOS}-pod\${POD}.slice
@@ -602,7 +602,7 @@ cat \${SCOPE}/cpu.weight
 # 11               ← derived from requests.cpu (low)
 
 # Check the effective capabilities
-cat /proc/\$(pgrep -f nginx | head -1)/status | grep Cap
+cat /proc/$(pgrep -f nginx | head -1)/status | grep Cap
 # CapEff: 00000000a80425fb   ← reduced by capabilities.drop/add</code></pre>
 
           <p>The values you wrote in YAML appear literally in kernel files. There is no hidden middle layer — the Pod's "spec" is a recipe that materialises into cgroup files, mount entries, capability sets, and <code>execve</code> arguments. Any mismatch between what was declared and what was applied is visible right here, before the app even gets a chance to say "something is off".</p>

@@ -16,13 +16,18 @@ export default function TutorialPart() {
   const partIndex = tutorial ? tutorial.parts.findIndex((p) => p.slug === partSlug) : -1
   const part = partIndex !== -1 ? tutorial.parts[partIndex] : null
 
+  const { html: contentHtml, headings } = useMemo(
+    () => (content ? buildToc(content[lang] || '') : { html: '', headings: [] }),
+    [content, lang],
+  )
+
   useEffect(() => {
     if (!tutorial || partIndex === -1) return
-    setContent(null)
     tutorial
       .loadPart(part.order)
       .then((mod) => setContent(mod.default))
       .catch(() => setContent(null))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tutorialSlug, partSlug])
 
   // After the content renders, honor any URL hash by scrolling to the matching
@@ -64,11 +69,6 @@ export default function TutorialPart() {
 
   const prev = tutorial.parts[partIndex - 1] ?? null
   const next = tutorial.parts[partIndex + 1] ?? null
-
-  const { html: contentHtml, headings } = useMemo(
-    () => (content ? buildToc(content[lang] || '') : { html: '', headings: [] }),
-    [content, lang],
-  )
 
   return (
     <>

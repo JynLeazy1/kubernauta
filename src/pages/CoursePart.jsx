@@ -1,17 +1,38 @@
-import { useState, useEffect } from 'react'
+import { useReducer, useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import Header from '../components/Header'
 import { useLang } from '../contexts/LangContext'
 import { strings } from '../i18n/strings'
 import courses from '../data/courses/index.js'
 
+const LOADING = { state: 'loading', content: null }
+const MISSING = { state: 'missing', content: null }
+function ready(content) {
+  return { state: 'ready', content }
+}
+
+function loadReducer(_, action) {
+  switch (action.type) {
+    case 'loading':
+      return LOADING
+    case 'ready':
+      return ready(action.content)
+    case 'missing':
+      return MISSING
+    default:
+      return { state: 'idle', content: null }
+  }
+}
+
 export default function CoursePart() {
   const { courseSlug, chapterSlug, partSlug } = useParams()
   const { lang } = useLang()
   const t = strings[lang]
   const course = courses.find((c) => c.slug === courseSlug)
-  const [content, setContent] = useState(null)
-  const [loadState, setLoadState] = useState('idle') // idle | loading | ready | missing
+  const [{ content, state: loadState }, dispatch] = useReducer(loadReducer, {
+    state: 'idle',
+    content: null,
+  })
 
   const chapterIndex = course ? course.parts.findIndex((p) => p.slug === chapterSlug) : -1
   const chapter = chapterIndex !== -1 ? course.parts[chapterIndex] : null
@@ -21,18 +42,22 @@ export default function CoursePart() {
 
   useEffect(() => {
     if (!course || !chapter || !subpart) return
-    setContent(null)
-    setLoadState('loading')
+    let cancelled = false
+    dispatch({ type: 'loading' })
     course
       .loadSubpart(chapter.order, subpart.order)
       .then((mod) => {
-        setContent(mod.default)
-        setLoadState('ready')
+        if (cancelled) return
+        dispatch({ type: 'ready', content: mod.default })
       })
       .catch(() => {
-        setContent(null)
-        setLoadState('missing')
+        if (cancelled) return
+        dispatch({ type: 'missing' })
       })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseSlug, chapterSlug, partSlug])
 
   // After the content renders, honor any URL hash by scrolling to the matching

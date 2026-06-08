@@ -17,7 +17,9 @@ export default function Post() {
   const { lang } = useLang()
   const t = strings[lang]
   const index = posts.findIndex((p) => p.slug === slug)
-  /* const post = posts.find((p) => p.slug === slug); */
+  const post = index === -1 ? null : posts[index]
+
+  usePageTitle(post ? `${post.title[lang]}` : 'Kubernauta')
 
   if (index === -1) {
     return (
@@ -31,11 +33,8 @@ export default function Post() {
     )
   }
 
-  const post = posts[index]
   const prev = posts[index + 1] ?? null
   const next = posts[index - 1] ?? null
-
-  usePageTitle(post ? `${post.title[lang]}` : 'Kubernauta')
 
   return (
     <>
