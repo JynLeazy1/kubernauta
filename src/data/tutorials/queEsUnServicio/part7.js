@@ -267,4 +267,4 @@ kubectl logs -n kube-system -l k8s-app=kube-dns -f</code></pre>
 
           <p>To avoid it, the explicit trailing dot is enough: <code>curl http://deb.debian.org.</code> signals to the resolver that it is an absolute FQDN and sends it directly to the upstream. In production it is also common to reduce <code>ndots</code> to 2 or 3 in the Pod's <code>dnsConfig</code> for applications that make many external calls. Once done with the verification, remove the <code>log</code> plugin from the Corefile and restart CoreDNS — logging every query in production has a non-trivial cost.</p>
         `,
-};
+}

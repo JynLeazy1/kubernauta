@@ -465,4 +465,4 @@ ps 65281
   → kubelet loop             → probes + state reporting</pre>
           </div>
         `,
-};
+}

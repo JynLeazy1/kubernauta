@@ -275,4 +275,4 @@ export default {
 
       <p>In the next sub-part we look at the Pod's lifecycle: phases, conditions, the three kinds of probes, and the <code>restartPolicy</code> that decides who restarts and when.</p>
     `,
-};
+}

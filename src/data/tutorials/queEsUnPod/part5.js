@@ -335,4 +335,4 @@ ls -lh /opt/cni/bin/
 
           <p>Calico, Flannel, and Cilium are more complex plugins that build on these same principles — they follow the same environment variable and stdin/stdout protocol, but with additional logic for cross-node routing, network policies, and observability.</p>
         `,
-};
+}

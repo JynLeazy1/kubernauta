@@ -1,3 +1,3 @@
-import kubernetesForBeginners from "./kubernetes-for-beginners/index.js";
+import kubernetesForBeginners from './kubernetes-for-beginners/index.js'
 
-export default [kubernetesForBeginners];
+export default [kubernetesForBeginners]

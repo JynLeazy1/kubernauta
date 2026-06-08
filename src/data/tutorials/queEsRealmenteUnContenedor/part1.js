@@ -77,4 +77,4 @@ sudo apt install util-linux iproute2 libcap2-bin</code></pre>
 
           <p>The answer is yes. And doing it will teach you more about containers than years of running <code>docker run</code>.</p>
         `,
-};
+}

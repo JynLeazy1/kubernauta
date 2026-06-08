@@ -223,4 +223,4 @@ kubectl get pods -l app=web -w</code></pre>
 
       <p>That covers the mechanics. In the next sub-part we open the model's other piece of glue: labels and selectors. Without them, Deployment, Service, none of it works.</p>
     `,
-};
+}

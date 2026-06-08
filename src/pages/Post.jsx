@@ -1,23 +1,22 @@
-import { Link, useParams } from "react-router-dom";
-import Header from "../components/Header";
-import { useLang } from "../contexts/LangContext";
-import { strings } from "../i18n/strings";
-import posts from "../data/posts/index.js";
-import { usePageTitle } from "../hooks/usePageTitle.js";
+import { Link, useParams } from 'react-router-dom'
+import { useLang } from '../contexts/LangContext'
+import { strings } from '../i18n/strings'
+import posts from '../data/posts/index.js'
+import { usePageTitle } from '../hooks/usePageTitle.js'
 
 function formatDate(iso, lang) {
-  return new Date(iso).toLocaleDateString(lang === "es" ? "es-MX" : "en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  return new Date(iso).toLocaleDateString(lang === 'es' ? 'es-MX' : 'en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
 }
 
 export default function Post() {
-  const { slug } = useParams();
-  const { lang } = useLang();
-  const t = strings[lang];
-  const index = posts.findIndex((p) => p.slug === slug);
+  const { slug } = useParams()
+  const { lang } = useLang()
+  const t = strings[lang]
+  const index = posts.findIndex((p) => p.slug === slug)
   /* const post = posts.find((p) => p.slug === slug); */
 
   if (index === -1) {
@@ -29,24 +28,17 @@ export default function Post() {
           {t.backHome}
         </Link>
       </div>
-    );
+    )
   }
 
-  const post = posts[index];
-  const prev = posts[index + 1] ?? null;
-  const next = posts[index - 1] ?? null;
+  const post = posts[index]
+  const prev = posts[index + 1] ?? null
+  const next = posts[index - 1] ?? null
 
-  usePageTitle(post ? `${post.title[lang]}` : "Kubernauta");
+  usePageTitle(post ? `${post.title[lang]}` : 'Kubernauta')
 
   return (
     <>
-      <Header>
-        <Link to="/" className="home-btn">
-          ← {t.home}
-        </Link>
-        <span className="site-logo">Kubernauta</span>
-      </Header>
-
       <main className="post-page">
         <div className="container">
           <div className="post-header">
@@ -61,10 +53,7 @@ export default function Post() {
             </div>
           </div>
 
-          <div
-            className="post-content"
-            dangerouslySetInnerHTML={{ __html: post.content[lang] }}
-          />
+          <div className="post-content" dangerouslySetInnerHTML={{ __html: post.content[lang] }} />
 
           <nav className="post-nav">
             {prev && (
@@ -83,5 +72,5 @@ export default function Post() {
         </div>
       </main>
     </>
-  );
+  )
 }

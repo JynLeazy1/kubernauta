@@ -127,4 +127,4 @@ export default {
 
       <p>In the next step we put all these pieces to work together: we follow the journey of a request from <code>kubectl apply</code> to a running container. You'll see exactly which process does what and in what order.</p>
     `,
-};
+}

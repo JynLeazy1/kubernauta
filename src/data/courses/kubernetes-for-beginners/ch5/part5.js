@@ -191,4 +191,4 @@ name: app-config-9b8a7e6f   # new version, new object</code></pre>
 
       <p>We close in the next sub-part with the model's limits and the most-used tools: external-secrets, sealed-secrets, Vault, and why anyone with a half-serious cluster doesn't stop at native Secrets.</p>
     `,
-};
+}

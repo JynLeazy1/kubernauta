@@ -241,4 +241,4 @@ spec:
 
       <p>In the next sub-part we close the chapter with the Pod recap and hand off to <a href="/course/kubernetes-for-beginners/replicasets-and-deployments">chapter 4 (ReplicaSets and Deployments)</a>.</p>
     `,
-};
+}

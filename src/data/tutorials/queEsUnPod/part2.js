@@ -41,4 +41,4 @@ export default {
 
           <p>And to implement that at the kernel level, Kubernetes needed a piece that does not appear in any YAML: the <code>pause</code> container.</p>
         `,
-};
+}

@@ -173,4 +173,4 @@ export default {
 
       <p>With this you understand 100% of how the declarative model works. In the next sub-part we open the piece that keeps the API from being closed: CRDs.</p>
     `,
-};
+}

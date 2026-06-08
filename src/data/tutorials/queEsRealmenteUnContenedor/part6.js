@@ -760,4 +760,4 @@ cat \${SCOPE}/cgroup.kill
 
           <p>This is the same mechanism Kubernetes uses for <code>kubectl delete pod --force --grace-period=0</code>: instead of waiting for the <code>preStop</code> hook to finish and sending SIGTERM → SIGKILL process by process, the kubelet asks containerd to write <code>1</code> to the pod's <code>cgroup.kill</code>, and everything dies at once. That is why <code>--force</code> is so deterministic.</p>
         `,
-};
+}

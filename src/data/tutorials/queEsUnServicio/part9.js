@@ -227,4 +227,4 @@ iptables -t nat -X DEMO-SEP-3</code></pre>
 
           <p>What we just did is exactly what kube-proxy does every time a Service is created — except kube-proxy does it in milliseconds, across all cluster nodes simultaneously, and keeps it synchronized with Pod state via EndpointSlices. The Kubernetes implementation is more robust, but the mechanism is identical to what we just wrote by hand.</p>
         `,
-};
+}

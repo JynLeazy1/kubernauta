@@ -1,17 +1,17 @@
 const post = {
   id: 7,
-  slug: "activar-ipvs-en-kube-proxy",
+  slug: 'activar-ipvs-en-kube-proxy',
   title: {
-    es: "Cómo activar el modo IPVS en kube-proxy",
-    en: "How to Enable IPVS Mode in kube-proxy",
+    es: 'Cómo activar el modo IPVS en kube-proxy',
+    en: 'How to Enable IPVS Mode in kube-proxy',
   },
-  date: "2026-02-12",
-  author: "Kubernauta",
+  date: '2026-02-12',
+  author: 'Kubernauta',
   excerpt: {
-    es: "El modo iptables evalúa reglas secuencialmente — con miles de Services, eso escala mal. IPVS usa tablas hash O(1). Este post muestra cómo cambiar el modo en un cluster existente sin downtime.",
-    en: "iptables mode evaluates rules sequentially — with thousands of Services, that scales poorly. IPVS uses O(1) hash tables. This post shows how to switch modes in a running cluster without downtime.",
+    es: 'El modo iptables evalúa reglas secuencialmente — con miles de Services, eso escala mal. IPVS usa tablas hash O(1). Este post muestra cómo cambiar el modo en un cluster existente sin downtime.',
+    en: 'iptables mode evaluates rules sequentially — with thousands of Services, that scales poorly. IPVS uses O(1) hash tables. This post shows how to switch modes in a running cluster without downtime.',
   },
-  tags: ["kube-proxy", "ipvs", "networking", "performance"],
+  tags: ['kube-proxy', 'ipvs', 'networking', 'performance'],
   content: {
     es: `
       <div class="callout callout-warning">
@@ -184,6 +184,6 @@ kubectl rollout status daemonset kube-proxy -n kube-system
       <p>If you run into problems, reverting is the inverse process: edit the ConfigMap, set <code>mode: ""</code> again, and do a rollout restart of the DaemonSet. The iptables rules are automatically regenerated and the IPVS entries disappear.</p>
     `,
   },
-};
+}
 
-export default post;
+export default post

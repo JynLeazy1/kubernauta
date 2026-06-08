@@ -409,4 +409,4 @@ kubectl logs my-pod -c app --previous
 # Exit code from the last crash
 kubectl get pod my-pod -o jsonpath='{.status.containerStatuses[0].lastState}'</code></pre>
         `,
-};
+}

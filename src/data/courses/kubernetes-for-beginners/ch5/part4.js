@@ -193,4 +193,4 @@ spec:
 
       <p>In the next sub-part we close the chapter with the model's real limits and the tools most teams end up using on top of native Secrets: external-secrets, sealed-secrets, Vault, and KMS integrations.</p>
     `,
-};
+}

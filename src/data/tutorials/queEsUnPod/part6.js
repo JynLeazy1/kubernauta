@@ -607,4 +607,4 @@ cat /proc/\$(pgrep -f nginx | head -1)/status | grep Cap
 
           <p>The values you wrote in YAML appear literally in kernel files. There is no hidden middle layer — the Pod's "spec" is a recipe that materialises into cgroup files, mount entries, capability sets, and <code>execve</code> arguments. Any mismatch between what was declared and what was applied is visible right here, before the app even gets a chance to say "something is off".</p>
         `,
-};
+}

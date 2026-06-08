@@ -243,4 +243,4 @@ kubectl get pods -l '!critical'                      # Pods without the critical
 
       <p>In the next sub-part we look at the day-to-day commands: scale, update the image, watch the rollout, and the YAML that runs underneath when you do.</p>
     `,
-};
+}

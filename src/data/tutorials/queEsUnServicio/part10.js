@@ -77,4 +77,4 @@ export default {
 
           <p>All of those topics start where we ended: with the understanding that a connection between Pods is a DNAT in the kernel, that conntrack maintains state, and that the control plane only writes rules — it never touches packets. Once that model is clear, everything else is layers stacked on the same foundation.</p>
         `,
-};
+}

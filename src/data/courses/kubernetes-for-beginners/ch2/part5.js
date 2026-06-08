@@ -225,4 +225,4 @@ kubectl describe crontab my-crontab</code></pre>
 
       <p>In the next sub-part we drop down to the client side: how you work with all these objects from <code>kubectl</code>, and the difference between <code>apply</code>, <code>create</code>, <code>--dry-run</code>, and <em>server-side apply</em>.</p>
     `,
-};
+}

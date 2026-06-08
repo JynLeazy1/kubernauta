@@ -63,4 +63,4 @@ export default {
 
           <p>By the end, a Pod will stop being a definition you recite and become something you actually understand.</p>
         `,
-};
+}

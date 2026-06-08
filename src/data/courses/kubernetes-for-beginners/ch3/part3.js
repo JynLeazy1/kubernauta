@@ -155,4 +155,4 @@ spec:
 
       <p>In the next sub-part we see the three classic multi-container patterns by name: <em>init container</em>, <em>sidecar</em>, and <em>ambassador</em>.</p>
     `,
-};
+}

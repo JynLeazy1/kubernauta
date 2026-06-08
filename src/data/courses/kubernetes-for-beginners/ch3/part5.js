@@ -235,4 +235,4 @@ export default {
 
       <p>In the next sub-part we look at the day-to-day commands: <code>get</code>, <code>describe</code>, <code>logs</code>, <code>exec</code>. Your minimum kit to debug everything we've seen so far.</p>
     `,
-};
+}

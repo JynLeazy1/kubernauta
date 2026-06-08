@@ -227,4 +227,4 @@ kubectl rollout resume deployment/web
 
       <p>In the next sub-part we cover what to do when a rollout goes wrong: how to revert to a previous version, what happens to the Pods, and why old ReplicaSets stay alive as a safety net.</p>
     `,
-};
+}

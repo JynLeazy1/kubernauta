@@ -249,4 +249,4 @@ kubectl get events --sort-by='.lastTimestamp' -n &lt;ns&gt;  # namespace events<
 
       <p>In the next sub-part we look at who manages Pods in production. Spoiler from the intro: not you.</p>
     `,
-};
+}

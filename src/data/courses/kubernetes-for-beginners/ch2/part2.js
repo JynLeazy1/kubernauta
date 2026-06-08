@@ -185,4 +185,4 @@ status:
 
       <p>Spec, status, metadata. Those three fields explain 90% of the declarative model. What we'll see in the rest of the chapter are refinements: how resources are grouped by API (next sub-part), how the controllers that close the loop are built, and how you can extend the API with your own types.</p>
     `,
-};
+}

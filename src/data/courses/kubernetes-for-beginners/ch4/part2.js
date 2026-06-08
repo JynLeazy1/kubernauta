@@ -179,4 +179,4 @@ web-9b8a7e6f         3         3         3       5h</code></pre>
 
       <p>In the next sub-part we see the Deployment in action: how it adds versions, how it orchestrates the rolling update, and the full chain Deployment → ReplicaSet → Pod.</p>
     `,
-};
+}

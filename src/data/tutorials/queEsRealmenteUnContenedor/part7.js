@@ -764,4 +764,4 @@ cat /proc/1/cgroup  # Points to the cgroup we created</code></pre>
 
           <p>But the structure is identical. What you just built <em>is</em> a container.</p>
         `,
-};
+}

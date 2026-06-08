@@ -63,4 +63,4 @@ kubectl rollout history deployment/my-app</code></pre>
   initialDelaySeconds: 5
   periodSeconds: 10</code></pre>
     `,
-};
+}

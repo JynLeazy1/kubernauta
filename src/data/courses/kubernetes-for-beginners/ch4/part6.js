@@ -189,4 +189,4 @@ kubectl get deploy web -o jsonpath='{.spec.template.spec.containers[0].image}'</
 
       <p>We close in the next sub-part with the chapter recap and the bridge to <a href="/course/kubernetes-for-beginners/configmaps-secrets">chapter 5 (ConfigMaps and Secrets)</a>, where we'll see how to pass configuration to all these apps you now know how to deploy.</p>
     `,
-};
+}

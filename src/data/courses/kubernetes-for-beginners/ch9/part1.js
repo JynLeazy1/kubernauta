@@ -75,4 +75,4 @@ spec:
       <h2>What about Ingress?</h2>
       <p>To expose multiple HTTP/HTTPS services under the same IP/domain using routes, use an <strong>Ingress</strong> with an Ingress Controller (nginx, Traefik, etc.). More efficient than one LoadBalancer per service.</p>
     `,
-};
+}

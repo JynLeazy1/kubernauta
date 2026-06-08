@@ -239,4 +239,4 @@ kubectl explain deployment.spec.template.spec.containers --recursive</code></pre
 
       <p>In the next sub-part we formalize controllers: what they are, how they're built, and why they are the engine of the declarative model.</p>
     `,
-};
+}

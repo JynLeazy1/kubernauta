@@ -197,4 +197,4 @@ export default {
 
       <p>We've reached the end of the chapter. In the next sub-part we close with a summary tying it all together and the map you'll carry into <a href="/course/kubernetes-for-beginners/pods">chapter 3 (Pods)</a>.</p>
     `,
-};
+}

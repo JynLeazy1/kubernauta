@@ -125,4 +125,4 @@ export default {
 
       <p>Everything else is implementation detail.</p>
     `,
-};
+}

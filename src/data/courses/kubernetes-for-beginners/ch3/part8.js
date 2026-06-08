@@ -89,4 +89,4 @@ export default {
 
       <p>From here on, every chapter opens a different object (Service, Namespace, Ingress, …), but the pattern is always the same: <em>what it declares, which controller reconciles it, what happens to the Pods it creates</em>. This chapter gave you the foundation everything else will lean on.</p>
     `,
-};
+}

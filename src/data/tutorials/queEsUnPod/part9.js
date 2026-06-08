@@ -301,4 +301,4 @@ nsenter --net=/proc/$PAUSE_PID/ns/net -- curl -s localhost | head -4
 
           <p>This is exactly what containerd does when kubelet calls <code>RunPodSandbox</code> (pause + namespaces) and then <code>CreateContainer</code> (nginx joining the sandbox). The difference is that containerd also runs the CNI plugin to assign a real IP to the network namespace — in our case the interface only has loopback.</p>
         `,
-};
+}

@@ -121,4 +121,4 @@ ping 10.108.153.200
 
           <p>For now, the fundamental point: a ClusterIP is not an IP assigned to an interface. It is a selector for iptables rules. It exists only in the nat table of the kernel, on every node in the cluster. kube-proxy is the process that creates and keeps those rules up to date.</p>
         `,
-};
+}

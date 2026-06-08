@@ -87,4 +87,4 @@ export default {
 
       <p>By the end, you'll be able to read any Pod YAML, explain every field, and understand why each field is there. More importantly, you'll have the correct mental model for every chapter that follows — because every other object we'll see leans on this idea of "Pod as shared environment".</p>
     `,
-};
+}

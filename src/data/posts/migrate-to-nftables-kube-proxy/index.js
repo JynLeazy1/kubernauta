@@ -1,17 +1,17 @@
 const post = {
   id: 8,
-  slug: "migrar-a-nftables-kube-proxy",
+  slug: 'migrar-a-nftables-kube-proxy',
   title: {
-    es: "Cómo migrar a nftables en kube-proxy",
-    en: "How to Migrate kube-proxy to nftables Mode",
+    es: 'Cómo migrar a nftables en kube-proxy',
+    en: 'How to Migrate kube-proxy to nftables Mode',
   },
-  date: "2026-04-10",
-  author: "Kubernauta",
+  date: '2026-04-10',
+  author: 'Kubernauta',
   excerpt: {
-    es: "nftables alcanzó GA en Kubernetes 1.33 y es el modo recomendado para instalaciones nuevas. Esta guía cubre la migración desde iptables paso a paso, con verificación en el cluster.",
-    en: "nftables reached GA in Kubernetes 1.33 and is the recommended mode for new installations. This guide covers migrating from iptables step by step, with cluster verification.",
+    es: 'nftables alcanzó GA en Kubernetes 1.33 y es el modo recomendado para instalaciones nuevas. Esta guía cubre la migración desde iptables paso a paso, con verificación en el cluster.',
+    en: 'nftables reached GA in Kubernetes 1.33 and is the recommended mode for new installations. This guide covers migrating from iptables step by step, with cluster verification.',
   },
-  tags: ["kube-proxy", "nftables", "networking", "kubernetes"],
+  tags: ['kube-proxy', 'nftables', 'networking', 'kubernetes'],
   content: {
     es: `
       <p>Desde Kubernetes 1.33, <strong>nftables es el modo recomendado</strong> para kube-proxy. No es el default todavía — iptables sigue siendo el default cuando el campo <code>mode</code> está vacío — pero es el camino hacia donde va el proyecto. IPVS fue deprecado en 1.35. Esta guía cubre la migración desde iptables a nftables en un cluster existente.</p>
@@ -286,6 +286,6 @@ kubectl rollout status daemonset kube-proxy -n kube-system</code></pre>
       <p>nftables is the recommended mode but is not yet the default — when <code>mode</code> is empty, kube-proxy picks iptables. That default change is planned for a future version. For now, using nftables requires explicit configuration as described in this guide.</p>
     `,
   },
-};
+}
 
-export default post;
+export default post

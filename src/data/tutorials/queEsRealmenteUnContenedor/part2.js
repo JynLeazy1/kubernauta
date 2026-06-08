@@ -1007,4 +1007,4 @@ ps aux      # the container's processes
 
           <p>The <code>pid_for_children</code> / <code>time_for_children</code> pair indicates the namespace that the next child processes will <em>inherit</em>. The subtlety is that calling <code>setns()</code> on a PID or time namespace <strong>does not move the current process</strong> — those identities are immutable after birth — but it does change the namespace that subsequently <code>fork()</code>ed children will join. That is why these two links can diverge from <code>pid</code> and <code>time</code>: the current process stays in the old namespace while its children are born in the new one.</p>
         `,
-};
+}

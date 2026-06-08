@@ -123,4 +123,4 @@ kubectl diff -f x.yaml</code></pre>
 
       <p>From there on, every chapter will open one type of object (Deployment, Service, Namespace, …) using the same method: what it declares, which controller reconciles it, and what happens in the kernel.</p>
     `,
-};
+}

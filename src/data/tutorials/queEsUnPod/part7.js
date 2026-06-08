@@ -261,4 +261,4 @@ lsns 4026532603
             <strong>Do not overuse sidecars:</strong> Every additional container consumes its own resources and adds complexity to the spec. A DaemonSet for the node log agent is usually better than a sidecar in every Pod.
           </div>
         `,
-};
+}
