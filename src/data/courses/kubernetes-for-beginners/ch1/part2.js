@@ -165,4 +165,4 @@ export default {
 
       <p>In the next step we go to the other side of the cluster: the worker nodes, where your containers actually run.</p>
     `,
-};
+}

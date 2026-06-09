@@ -1,26 +1,21 @@
-import PostCard from "../components/PostCard";
-import TutorialCard from "../components/TutorialCard";
-import CourseCard from "../components/CourseCard";
-import Header from "../components/Header";
-import { useLang } from "../contexts/LangContext";
-import { strings } from "../i18n/strings";
-import posts from "../data/posts/index.js";
-import tutorials from "../data/tutorials/index.js";
-import courses from "../data/courses/index.js";
-import { usePageTitle } from "../hooks/usePageTitle.js";
+import PostCard from '../components/PostCard'
+import TutorialCard from '../components/TutorialCard'
+import CourseCard from '../components/CourseCard'
+import { useLang } from '../contexts/LangContext'
+import { strings } from '../i18n/strings'
+import posts from '../data/posts/index.js'
+import tutorials from '../data/tutorials/index.js'
+import courses from '../data/courses/index.js'
+import { usePageTitle } from '../hooks/usePageTitle.js'
 
 export default function Home() {
-  const { lang } = useLang();
-  const t = strings[lang];
+  const { lang } = useLang()
+  const t = strings[lang]
 
-  usePageTitle("Kubernauta");
+  usePageTitle('Home')
 
   return (
     <>
-      <Header>
-        <span className="site-logo">Kubernauta</span>
-      </Header>
-
       <main>
         <div className="container">
           <div className="home-hero">
@@ -63,5 +58,5 @@ export default function Home() {
         </div>
       </main>
     </>
-  );
+  )
 }

@@ -181,4 +181,4 @@ sudo conntrack -L -p tcp --dport 80
 
           <p>No user space process was involved in the packet's path. kube-proxy installed the rules, but once installed, the kernel applies them on its own. That is what makes the model scale.</p>
         `,
-};
+}

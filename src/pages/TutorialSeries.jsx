@@ -1,31 +1,27 @@
-import { Link, useParams } from "react-router-dom";
-import Header from "../components/Header";
-import { useLang } from "../contexts/LangContext";
-import { strings } from "../i18n/strings";
-import tutorials from "../data/tutorials/index.js";
+import { Link, useParams } from 'react-router-dom'
+import { useLang } from '../contexts/LangContext'
+import { strings } from '../i18n/strings'
+import tutorials from '../data/tutorials/index.js'
 
 export default function TutorialSeries() {
-  const { tutorialSlug } = useParams();
-  const { lang } = useLang();
-  const t = strings[lang];
-  const tutorial = tutorials.find((tr) => tr.slug === tutorialSlug);
+  const { tutorialSlug } = useParams()
+  const { lang } = useLang()
+  const t = strings[lang]
+  const tutorial = tutorials.find((tr) => tr.slug === tutorialSlug)
 
   if (!tutorial) {
     return (
       <div className="not-found">
         <h2>{t.tutorialNotFound}</h2>
-        <Link to="/" className="home-btn">{t.backHome}</Link>
+        <Link to="/" className="home-btn">
+          {t.backHome}
+        </Link>
       </div>
-    );
+    )
   }
 
   return (
     <>
-      <Header>
-        <Link to="/" className="home-btn">← {t.home}</Link>
-        <Link to="/" className="site-logo">Kubernauta</Link>
-      </Header>
-
       <main className="series-page">
         <div className="container">
           <div className="series-hero">
@@ -37,7 +33,9 @@ export default function TutorialSeries() {
             <p className="series-description">{tutorial.description[lang]}</p>
             <div className="tags">
               {tutorial.tags.map((tag) => (
-                <span key={tag} className="tag">{tag}</span>
+                <span key={tag} className="tag">
+                  {tag}
+                </span>
               ))}
             </div>
           </div>
@@ -47,13 +45,8 @@ export default function TutorialSeries() {
             <ol className="parts-list">
               {tutorial.parts.map((part) => (
                 <li key={part.slug} className="part-item">
-                  <Link
-                    to={`/tutorial/${tutorial.slug}/${part.slug}`}
-                    className="part-link"
-                  >
-                    <span className="part-number">
-                      {String(part.order).padStart(2, "0")}
-                    </span>
+                  <Link to={`/tutorial/${tutorial.slug}/${part.slug}`} className="part-link">
+                    <span className="part-number">{String(part.order).padStart(2, '0')}</span>
                     <span className="part-title">{part.title[lang]}</span>
                     <span className="part-arrow">→</span>
                   </Link>
@@ -63,15 +56,12 @@ export default function TutorialSeries() {
           </div>
 
           <div className="series-start">
-            <Link
-              to={`/tutorial/${tutorial.slug}/${tutorial.parts[0].slug}`}
-              className="start-btn"
-            >
+            <Link to={`/tutorial/${tutorial.slug}/${tutorial.parts[0].slug}`} className="start-btn">
               {t.startReading}
             </Link>
           </div>
         </div>
       </main>
     </>
-  );
+  )
 }

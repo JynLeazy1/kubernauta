@@ -203,4 +203,4 @@ kubectl get svc nginx-headless
 
           <p>Headless Services are the foundation of StatefulSets: each Pod in a StatefulSet has a stable and predictable DNS record (<code>pod-0.service.namespace.svc.cluster.local</code>) that points directly to that specific Pod. That is what allows databases like Cassandra or Kafka, where each replica has a distinct role, to be individually addressable.</p>
         `,
-};
+}

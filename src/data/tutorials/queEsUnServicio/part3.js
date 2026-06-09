@@ -153,4 +153,4 @@ func (o *Options) platformApplyDefaults(config *proxyconfigapi.KubeProxyConfigur
 
           <p>In most production clusters today, the active mode is iptables. In the following sections we will dissect it in detail: exactly which chains it creates, how statistical load balancing works, and how to trace it in a real cluster.</p>
         `,
-};
+}

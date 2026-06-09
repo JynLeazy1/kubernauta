@@ -111,4 +111,4 @@ export default {
 
           <p>Each component does exactly one thing: CoreDNS resolves names, kube-proxy installs rules, netfilter rewrites IPs, conntrack remembers translations, the CNI routes to the Pod. None of them knows about the others' work — they coordinate through kernel state, not through direct communication.</p>
         `,
-};
+}

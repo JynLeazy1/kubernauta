@@ -539,4 +539,4 @@ kubectl get pod test-restart -w
 kubectl logs test-restart -c sidecar
 # Timestamps must be continuous, with no gap</code></pre>
         `,
-};
+}

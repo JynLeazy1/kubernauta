@@ -135,4 +135,4 @@ export default {
 
       <p>In the next sub-part we close the chapter with the topic we left pending: high availability. What happens if the server where the entire control plane — including etcd — runs goes down?</p>
     `,
-};
+}

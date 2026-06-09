@@ -293,4 +293,4 @@ data:
 
       <p>In the next sub-part we open the sensitive cousin: the Secret. We'll see the built-in types, what "base64 is not encryption" means, and how to turn on encryption at rest in etcd.</p>
     `,
-};
+}

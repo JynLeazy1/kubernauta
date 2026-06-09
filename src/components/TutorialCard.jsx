@@ -1,10 +1,10 @@
-import { Link } from "react-router-dom";
-import { useLang } from "../contexts/LangContext";
-import { strings } from "../i18n/strings";
+import { Link } from 'react-router-dom'
+import { useLang } from '../contexts/LangContext'
+import { strings } from '../i18n/strings'
 
 export default function TutorialCard({ tutorial }) {
-  const { lang } = useLang();
-  const t = strings[lang];
+  const { lang } = useLang()
+  const t = strings[lang]
 
   return (
     <Link to={`/tutorial/${tutorial.slug}`} className="tutorial-card">
@@ -16,10 +16,12 @@ export default function TutorialCard({ tutorial }) {
       <p>{tutorial.description[lang]}</p>
       <div className="tags">
         {tutorial.tags.map((tag) => (
-          <span key={tag} className="tag">{tag}</span>
+          <span key={tag} className="tag">
+            {tag}
+          </span>
         ))}
       </div>
       <span className="tutorial-card-cta">{t.startReading}</span>
     </Link>
-  );
+  )
 }

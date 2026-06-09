@@ -145,4 +145,4 @@ export default {
 
           <p>And if anyone tries to sell you that "Kubernetes is magic", you have your answer ready: <em>no — it is four or five kernel syscalls chained by kubelet via a gRPC proto, materialising in kernel files you can read with <code>cat</code>.</em></p>
         `,
-};
+}

@@ -283,4 +283,4 @@ sudo iptables -t nat -L KUBE-SVC-2CMXP7HKUVJN7L6M -n --line-numbers
 
           <p>The Pod at <code>192.168.1.4</code> is gone. Its <code>KUBE-SEP-LJUUEGC24UMYBEWU</code> chain was removed. The Deployment created a replacement Pod with IP <code>192.168.1.7</code> — a different IP, as always — and kube-proxy created a new <code>KUBE-SEP-4AGQXI4GR55VNW45</code> chain for it. The probabilities stay at 1/3, 1/2, and 1, distributing traffic evenly across the three active Pods. All of this without restarting anything, without manual intervention — the control loop working.</p>
         `,
-};
+}

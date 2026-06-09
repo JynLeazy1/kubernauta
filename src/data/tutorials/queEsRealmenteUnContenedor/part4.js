@@ -328,4 +328,4 @@ rmdir(".old_root")
 
           <p>The result is that the process has no reference whatsoever to the host filesystem. Not even an open file descriptor can be used to navigate back to the original file system.</p>
         `,
-};
+}

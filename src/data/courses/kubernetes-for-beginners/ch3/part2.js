@@ -261,4 +261,4 @@ spec:
 
       <p>This manifest is already useful for the KCNA: if you can explain what <em>every</em> line does, you're in good shape. In the next sub-part we open the multi-container case and when it's worth using.</p>
     `,
-};
+}

@@ -243,4 +243,4 @@ execve("/docker-entrypoint.sh", ["/docker-entrypoint.sh", "nginx", "-g", "daemon
 
           <p>All four honor the same OCI interface, so Kubernetes can swap them per Pod via <a href="https://kubernetes.io/docs/concepts/containers/runtime-class/" target="_blank" rel="noopener">RuntimeClass</a>. You can use runc for your public API and kata-containers for a Pod running untrusted third-party code, in the same cluster.</p>
         `,
-};
+}

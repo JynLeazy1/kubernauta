@@ -100,4 +100,4 @@ export default {
 
       <p>If you want the official reference handy as we go, keep this one open: <a href="https://kubernetes.io/docs/concepts/overview/components/" target="_blank" rel="noopener noreferrer">Cluster Components — kubernetes.io</a>.</p>
     `,
-};
+}

@@ -161,4 +161,4 @@ export default {
 
       <p>In the next sub-part we open etcd, the piece that makes all this possible — the only source of truth of the cluster.</p>
     `,
-};
+}

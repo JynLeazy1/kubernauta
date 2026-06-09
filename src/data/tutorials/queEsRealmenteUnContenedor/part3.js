@@ -449,4 +449,4 @@ sudo podman run --rm alpine cat /proc/self/uid_map
 
           <p>The criterion that matters is not whether the user is a sudoer, but the <strong>effective UID that invokes the runtime</strong>. You can reproduce the three cases (direct root, regular user, sudoer with <code>sudo</code>) empirically with the <a href="/test-podman-userns.sh" download><code>test-podman-userns.sh</code></a> script. The detailed <code>uid_map</code> format and the role of <code>/etc/subuid</code> are covered in the <a href="/tutorial/que-es-realmente-un-contenedor/namespaces#6-user-user-namespace">user namespace section of the previous chapter</a>.</p>
         `,
-};
+}

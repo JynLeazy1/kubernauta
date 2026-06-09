@@ -79,4 +79,4 @@ export default {
 
       <p>By the end, you'll be able to read a Deployment manifest, explain what happens when you apply a change, and know exactly how to recover the cluster when a broken image lands in production. Which happens more often than you think.</p>
     `,
-};
+}

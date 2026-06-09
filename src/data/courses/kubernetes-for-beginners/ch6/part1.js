@@ -99,4 +99,4 @@ spec:
       <h2>When NOT to use namespaces</h2>
       <p>Namespaces provide logical isolation, not physical. For strong isolation between tenants, consider separate clusters or solutions like vCluster.</p>
     `,
-};
+}

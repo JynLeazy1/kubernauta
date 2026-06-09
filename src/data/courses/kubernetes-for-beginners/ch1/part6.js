@@ -163,4 +163,4 @@ export default {
 
       <p>In the next sub-part we close the chapter with a visual recap and the full mental map you'll carry into the rest of the course.</p>
     `,
-};
+}

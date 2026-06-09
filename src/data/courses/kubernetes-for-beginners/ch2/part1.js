@@ -117,4 +117,4 @@ spec:
 
       <p>By the end, when someone says <em>"Kubernetes is declarative"</em>, you won't nod out of reflex — you'll know exactly what that implies at the API, controller, and distributed-systems levels.</p>
     `,
-};
+}

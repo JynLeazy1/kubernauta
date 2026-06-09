@@ -125,4 +125,4 @@ docker ps | grep pause</code></pre>
 
           <p>If you understood this series, understanding Pods will feel natural — it is exactly the same mechanism, with namespaces selectively shared among processes.</p>
         `,
-};
+}

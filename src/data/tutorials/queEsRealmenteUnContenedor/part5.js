@@ -165,4 +165,4 @@ ls -la /tmp/overlay/upper/
 
           <p>Note the layer with the <code>-init</code> suffix at the beginning of <code>LowerDir</code>. Docker inserts it between the image and the container's <code>upperdir</code>. It contains files that Docker manages and that should not persist across container recreations: <code>/etc/hostname</code>, <code>/etc/hosts</code>, <code>/etc/resolv.conf</code>. This is the layer that gives each container its own hostname without modifying the base image.</p>
         `,
-};
+}

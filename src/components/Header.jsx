@@ -1,5 +1,5 @@
-import ThemeToggle from "./ThemeToggle";
-import LangToggle from "./LangToggle";
+import ThemeToggle from './ThemeToggle'
+import LangToggle from './LangToggle'
 
 export default function Header({ children }) {
   return (
@@ -12,5 +12,5 @@ export default function Header({ children }) {
         </div>
       </div>
     </header>
-  );
+  )
 }

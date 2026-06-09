@@ -267,4 +267,4 @@ volumeMounts:
 
       <p>In the next sub-part we go deeper into the env vs volume decision, and look at what happens when a ConfigMap or Secret is modified — because the answer is less automatic than it seems.</p>
     `,
-};
+}

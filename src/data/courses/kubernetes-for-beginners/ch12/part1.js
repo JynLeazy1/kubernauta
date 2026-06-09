@@ -95,4 +95,4 @@ containers:
       <h2>Conclusion</h2>
       <p>PV/PVC give stateful workloads the persistent storage they need, with a clear separation of responsibilities: the administrator provides capacity, the developer claims it.</p>
     `,
-};
+}

@@ -49,4 +49,4 @@ export default {
 
           <pre><code>apt-get install -y conntrack dnsutils tcpdump</code></pre>
         `,
-};
+}

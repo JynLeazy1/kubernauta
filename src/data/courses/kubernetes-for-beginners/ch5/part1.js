@@ -113,4 +113,4 @@ export default {
 
       <p>By the end, you'll know which type to use, how to inject it correctly, and understand why Kubernetes Secrets <em>alone</em> aren't a serious secret-management solution — and which tools complement them.</p>
     `,
-};
+}

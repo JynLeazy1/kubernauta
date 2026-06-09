@@ -83,4 +83,4 @@ export default {
 
       <p><a href="/course/kubernetes-for-beginners/configmaps-secrets">Chapter 5 (ConfigMaps and Secrets)</a> fixes that: how to separate configuration from code, how to inject it into your Pods (via env or volumes), and the real difference between "a Secret" and "what most people would call secret" (spoiler: by default, Secrets aren't as secret as you think).</p>
     `,
-};
+}
