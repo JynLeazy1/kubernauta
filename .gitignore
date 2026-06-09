@@ -25,3 +25,7 @@ dist-ssr
 
 # Project documentation
 roadmap/
+
+# Local agent config (no trackear)
+AGENTS.md
+
