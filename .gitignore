@@ -26,6 +26,10 @@ dist-ssr
 # Project documentation
 roadmap/
 
+# Playwright
+playwright-report/
+test-results/
+
 # Local agent config (no trackear)
 AGENTS.md
 
