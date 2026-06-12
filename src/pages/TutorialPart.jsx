@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import TableOfContents from '../components/TableOfContents'
+import Loading from '../components/Loading'
 import { useLang } from '../contexts/LangContext'
 import { strings } from '../i18n/strings'
 import tutorials from '../data/tutorials/index.js'
@@ -91,7 +92,7 @@ export default function TutorialPart() {
             {content ? (
               <div className="post-content" dangerouslySetInnerHTML={{ __html: contentHtml }} />
             ) : (
-              <div className="post-content" />
+              <Loading fullPage />
             )}
           </div>
 

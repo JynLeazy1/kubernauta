@@ -1,6 +1,7 @@
 import { useReducer, useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import Header from '../components/Header'
+import Loading from '../components/Loading'
 import { useLang } from '../contexts/LangContext'
 import { strings } from '../i18n/strings'
 import courses from '../data/courses/index.js'
@@ -145,7 +146,7 @@ export default function CoursePart() {
               <p>{t.comingSoonBody}</p>
             </div>
           ) : (
-            <div className="post-content" />
+            <Loading fullPage />
           )}
 
           <nav className="post-nav">
