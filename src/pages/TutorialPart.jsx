@@ -75,25 +75,26 @@ export default function TutorialPart() {
     <>
       <main className="post-page post-page--with-toc">
         <div className="container">
-          <div className="post-header">
-            <div className="part-meta">
-              <span className="part-series-label">
-                <Link to={`/tutorial/${tutorial.slug}`}>{tutorial.title[lang]}</Link>
-              </span>
-              <span className="part-progress">{t.part(part.order, tutorial.parts.length)}</span>
-            </div>
-            <h1>{part.title[lang]}</h1>
-          </div>
-
           <div className="post-layout">
             {content && headings.length > 0 && (
               <TableOfContents headings={headings} label={t.onThisPage} />
             )}
-            {content ? (
-              <div className="post-content" dangerouslySetInnerHTML={{ __html: contentHtml }} />
-            ) : (
-              <Loading fullPage />
-            )}
+            <div className="post-layout__main">
+              <div className="post-header">
+                <div className="part-meta">
+                  <span className="part-series-label">
+                    <Link to={`/tutorial/${tutorial.slug}`}>{tutorial.title[lang]}</Link>
+                  </span>
+                  <span className="part-progress">{t.part(part.order, tutorial.parts.length)}</span>
+                </div>
+                <h1>{part.title[lang]}</h1>
+              </div>
+              {content ? (
+                <div className="post-content" dangerouslySetInnerHTML={{ __html: contentHtml }} />
+              ) : (
+                <Loading fullPage />
+              )}
+            </div>
           </div>
 
           <nav className="post-nav">
