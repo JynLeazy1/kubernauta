@@ -215,27 +215,26 @@ a {
   display: block;
 }
 
-.post-layout .post-content {
+.post-layout__main {
   min-width: 0;
 }
-
 @media (min-width: 1024px) {
   .post-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 220px;
+    display: flex;
+    flex-direction: row;
     gap: 3rem;
     align-items: start;
   }
 
-  /* TOC moves to the right column on desktop even though it's first in DOM */
-  .post-layout .toc {
-    grid-column: 2;
-    grid-row: 1;
+  .post-layout__main {
+    flex: 1;
+    min-width: 0;
   }
 
-  .post-layout .post-content {
-    grid-column: 1;
-    grid-row: 1;
+  .post-layout > .toc {
+    width: 220px;
+    flex-shrink: 0;
+    order: 1;
   }
 }
 
