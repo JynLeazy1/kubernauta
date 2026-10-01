@@ -6,6 +6,7 @@ import { useLang } from '../contexts/LangContext'
 import { strings } from '../i18n/strings'
 import tutorials from '../data/tutorials/index.js'
 import { buildToc } from '../utils/toc'
+import { usePageTitle } from '../hooks/usePageTitle.js'
 
 export default function TutorialPart() {
   const { tutorialSlug, partSlug } = useParams()
@@ -16,6 +17,8 @@ export default function TutorialPart() {
 
   const partIndex = tutorial ? tutorial.parts.findIndex((p) => p.slug === partSlug) : -1
   const part = partIndex !== -1 ? tutorial.parts[partIndex] : null
+
+  usePageTitle(part?.title[lang])
 
   const { html: contentHtml, headings } = useMemo(
     () => (content ? buildToc(content[lang] || '') : { html: '', headings: [] }),

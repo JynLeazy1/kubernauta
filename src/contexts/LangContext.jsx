@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 
 const LangContext = createContext()
 
@@ -8,6 +8,10 @@ export function LangProvider({ children }) {
     if (stored) return stored
     return navigator.language.startsWith('es') ? 'es' : 'en'
   })
+
+  useEffect(() => {
+    document.documentElement.lang = lang
+  }, [lang])
 
   const toggle = () => {
     const next = lang === 'es' ? 'en' : 'es'

@@ -12,7 +12,7 @@ export default function Home() {
   const { lang } = useLang()
   const t = strings[lang]
 
-  usePageTitle('Home')
+  usePageTitle()
 
   return (
     <>
