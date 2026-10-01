@@ -37,9 +37,9 @@ export default function CourseChapter() {
 
   return (
     <>
-      <main className="series-page">
+      <article className="series-page">
         <div className="container">
-          <div className="series-hero">
+          <header className="series-hero">
             <div className="series-label">
               <Link to={`/course/${course.slug}`}>{course.title[lang]}</Link>
               <span> · {t.chapter(chapter.order, totalChapters)}</span>
@@ -48,7 +48,7 @@ export default function CourseChapter() {
             {subparts.length > 0 && (
               <p className="series-subtitle">{t.subparts(subparts.length)}</p>
             )}
-          </div>
+          </header>
 
           <div className="series-parts">
             <h2 className="parts-heading">{t.chapterContents}</h2>
@@ -79,7 +79,7 @@ export default function CourseChapter() {
             </div>
           )}
         </div>
-      </main>
+      </article>
     </>
   )
 }

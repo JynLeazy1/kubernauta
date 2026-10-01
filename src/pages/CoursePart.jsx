@@ -123,7 +123,7 @@ export default function CoursePart() {
 
   return (
     <>
-      <main className="post-page">
+      <article className="post-page">
         <div className="container">
           <div className="post-header">
             <div className="part-meta">
@@ -192,7 +192,7 @@ export default function CoursePart() {
             ) : null}
           </nav>
         </div>
-      </main>
+      </article>
     </>
   )
 }

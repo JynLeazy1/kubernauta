@@ -16,7 +16,7 @@ export default function Home() {
 
   return (
     <>
-      <main>
+      <div>
         <div className="container">
           <div className="home-hero">
             <h1>{t.heroTitle}</h1>
@@ -56,7 +56,7 @@ export default function Home() {
             </div>
           </section>
         </div>
-      </main>
+      </div>
     </>
   )
 }

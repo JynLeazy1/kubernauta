@@ -38,7 +38,7 @@ export default function Post() {
 
   return (
     <>
-      <main className="post-page">
+      <article className="post-page">
         <div className="container">
           <div className="post-header">
             <div className="post-date">{formatDate(post.date, lang)}</div>
@@ -69,7 +69,7 @@ export default function Post() {
             )}
           </nav>
         </div>
-      </main>
+      </article>
     </>
   )
 }

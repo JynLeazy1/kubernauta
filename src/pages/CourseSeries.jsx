@@ -22,9 +22,9 @@ export default function CourseSeries() {
 
   return (
     <>
-      <main className="series-page">
+      <article className="series-page">
         <div className="container">
-          <div className="series-hero">
+          <header className="series-hero">
             <div className="series-label">
               {t.course} · {t.chapters(course.parts.length)}
               {course.wip && <span className="series-wip">{t.workInProgress}</span>}
@@ -39,7 +39,7 @@ export default function CourseSeries() {
                 </span>
               ))}
             </div>
-          </div>
+          </header>
 
           <div className="series-parts">
             <h2 className="parts-heading">{t.contents}</h2>
@@ -65,7 +65,7 @@ export default function CourseSeries() {
             </Link>
           </div>
         </div>
-      </main>
+      </article>
     </>
   )
 }

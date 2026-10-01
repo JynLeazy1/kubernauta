@@ -22,9 +22,9 @@ export default function TutorialSeries() {
 
   return (
     <>
-      <main className="series-page">
+      <article className="series-page">
         <div className="container">
-          <div className="series-hero">
+          <header className="series-hero">
             <div className="series-label">
               {t.tutorial} · {t.parts(tutorial.parts.length)}
             </div>
@@ -38,7 +38,7 @@ export default function TutorialSeries() {
                 </span>
               ))}
             </div>
-          </div>
+          </header>
 
           <div className="series-parts">
             <h2 className="parts-heading">{t.contents}</h2>
@@ -61,7 +61,7 @@ export default function TutorialSeries() {
             </Link>
           </div>
         </div>
-      </main>
+      </article>
     </>
   )
 }
