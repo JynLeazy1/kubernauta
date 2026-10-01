@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useLang } from '../contexts/LangContext'
 import { strings } from '../i18n/strings'
 import courses from '../data/courses/index.js'
+import { usePageTitle } from '../hooks/usePageTitle.js'
 
 export default function CourseChapter() {
   const { courseSlug, chapterSlug } = useParams()
@@ -9,6 +10,8 @@ export default function CourseChapter() {
   const t = strings[lang]
   const course = courses.find((c) => c.slug === courseSlug)
   const chapter = course ? course.parts.find((p) => p.slug === chapterSlug) : null
+
+  usePageTitle(chapter?.title[lang])
 
   if (!course) {
     return (

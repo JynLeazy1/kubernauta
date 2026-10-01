@@ -2,12 +2,15 @@ import { Link, useParams } from 'react-router-dom'
 import { useLang } from '../contexts/LangContext'
 import { strings } from '../i18n/strings'
 import courses from '../data/courses/index.js'
+import { usePageTitle } from '../hooks/usePageTitle.js'
 
 export default function CourseSeries() {
   const { courseSlug } = useParams()
   const { lang } = useLang()
   const t = strings[lang]
   const course = courses.find((c) => c.slug === courseSlug)
+
+  usePageTitle(course?.title[lang])
 
   if (!course) {
     return (

@@ -19,7 +19,7 @@ export default function Post() {
   const index = posts.findIndex((p) => p.slug === slug)
   const post = index === -1 ? null : posts[index]
 
-  usePageTitle(post ? `${post.title[lang]}` : 'Kubernauta')
+  usePageTitle(post?.title[lang])
 
   if (index === -1) {
     return (

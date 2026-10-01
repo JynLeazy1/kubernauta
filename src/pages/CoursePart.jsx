@@ -5,6 +5,7 @@ import Loading from '../components/Loading'
 import { useLang } from '../contexts/LangContext'
 import { strings } from '../i18n/strings'
 import courses from '../data/courses/index.js'
+import { usePageTitle } from '../hooks/usePageTitle.js'
 
 const LOADING = { state: 'loading', content: null }
 const MISSING = { state: 'missing', content: null }
@@ -40,6 +41,8 @@ export default function CoursePart() {
   const subparts = chapter?.subparts ?? []
   const subIndex = chapter ? subparts.findIndex((s) => s.slug === partSlug) : -1
   const subpart = subIndex !== -1 ? subparts[subIndex] : null
+
+  usePageTitle(subpart?.title[lang])
 
   useEffect(() => {
     if (!course || !chapter || !subpart) return

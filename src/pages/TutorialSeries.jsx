@@ -2,12 +2,15 @@ import { Link, useParams } from 'react-router-dom'
 import { useLang } from '../contexts/LangContext'
 import { strings } from '../i18n/strings'
 import tutorials from '../data/tutorials/index.js'
+import { usePageTitle } from '../hooks/usePageTitle.js'
 
 export default function TutorialSeries() {
   const { tutorialSlug } = useParams()
   const { lang } = useLang()
   const t = strings[lang]
   const tutorial = tutorials.find((tr) => tr.slug === tutorialSlug)
+
+  usePageTitle(tutorial?.title[lang])
 
   if (!tutorial) {
     return (

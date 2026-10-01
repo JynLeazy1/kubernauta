@@ -2,6 +2,6 @@ import { useEffect } from 'react'
 
 export function usePageTitle(title) {
   useEffect(() => {
-    document.title = `${title} | Kubernauta`
+    document.title = title ? `${title} | Kubernauta` : 'Kubernauta'
   }, [title])
 }
