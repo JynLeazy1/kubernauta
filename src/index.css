@@ -221,6 +221,18 @@ a {
 .post-layout__main {
   min-width: 0;
 }
+
+/* ─── Table of Contents ───────────────────────── */
+
+/* Mobile (< 1024px): the TOC is a collapsible bar that stays sticky
+   just under the site header, so you can open it from anywhere. */
+.post-layout__toc {
+  position: sticky;
+  top: 3.75rem;
+  z-index: 5;
+  margin-bottom: 1.5rem;
+}
+
 @media (min-width: 1024px) {
   .post-layout {
     display: flex;
@@ -234,22 +246,19 @@ a {
     min-width: 0;
   }
 
-  .post-layout > .toc {
+  .post-layout__toc {
     width: 220px;
     flex-shrink: 0;
     order: 1;
+    top: 5rem;
+    align-self: start;
+    max-height: calc(100vh - 6rem);
+    overflow-y: auto;
+    overflow-x: hidden;
+    margin-bottom: 0;
   }
 }
-
-/* ─── Table of Contents ───────────────────────── */
-
-/* Mobile (< 1024px): the TOC is a collapsible bar that stays sticky
-   just under the site header, so you can open it from anywhere. */
 .toc {
-  position: sticky;
-  top: 3.75rem;
-  z-index: 5;
-  margin-bottom: 1.5rem;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -295,12 +304,9 @@ a {
 
 /* Desktop (>= 1024px): sticky sidebar, always visible, no toggle behavior */
 @media (min-width: 1024px) {
-  .toc {
-    position: sticky;
-    top: 5rem;
-    align-self: start;
-    max-height: calc(100vh - 6rem);
-    overflow-y: auto;
+  .post-layout__toc .toc {
+    width: 100%;
+    position: static;
     font-size: 0.875rem;
     margin-bottom: 0;
     background: transparent;
@@ -1050,7 +1056,7 @@ a {
 .app-layout {
   display: flex;
   min-height: calc(100vh - 3.75rem);
-  overflow: hidden;
+  overflow-x: clip;
 }
 
 .sidebar-wrapper {

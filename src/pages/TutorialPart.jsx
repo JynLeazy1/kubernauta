@@ -73,11 +73,13 @@ export default function TutorialPart() {
 
   return (
     <>
-      <main className="post-page post-page--with-toc">
+      <article className="post-page post-page--with-toc">
         <div className="container">
           <div className="post-layout">
             {content && headings.length > 0 && (
-              <TableOfContents headings={headings} label={t.onThisPage} />
+              <div className="post-layout__toc">
+                <TableOfContents headings={headings} label={t.onThisPage} />
+              </div>
             )}
             <div className="post-layout__main">
               <div className="post-header">
@@ -118,7 +120,7 @@ export default function TutorialPart() {
             )}
           </nav>
         </div>
-      </main>
+      </article>
     </>
   )
 }
