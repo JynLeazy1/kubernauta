@@ -1,0 +1,26 @@
+Kubernetes para principiantes · Capítulo 1 de 21
+Arquitectura de Kubernetes: plano de control, nodos y el flujo de una petición
+7 secciones
+En este capítulo
+01
+Introducción: qué es realmente un cluster
+→
+02
+El plano de control: apiserver, etcd, scheduler, controller-manager
+→
+03
+Los nodos worker: kubelet, kube-proxy y el runtime
+→
+04
+El flujo de una petición: de kubectl apply a contenedor corriendo
+→
+05
+etcd: la fuente de verdad del cluster
+→
+06
+Alta disponibilidad: por qué el plano de control no es una sola máquina
+→
+07
+Resumen: el mapa mental completo
+→
+Empezar el capítulo →

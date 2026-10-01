@@ -1,0 +1,61 @@
+Kubernetes & Containers
+Technical articles and tutorials on orchestration, cloud-native infrastructure, and the kernel primitives that make it all possible.
+Courses
+Work in progress
+Course · 21 chapters
+Kubernetes for Beginners
+The core concepts for the KCNA and beyond
+A full course aimed at the KCNA certification. Covers the five official domains — Kubernetes fundamentals, container orchestration, cloud native ecosystem, observability, and application delivery — in the same deep style as the rest of the platform: understanding every piece from the inside out, not just reciting definitions.
+kubernetes
+kcna
+cloud-native
+cncf
+containers
+beginners
+Start the course →
+Tutorials
+Tutorial · 9 parts
+What exactly is a Container?
+Building a Container from Scratch
+We dismantle the illusion layer by layer: namespaces, capabilities, chroot, pivot_root, OverlayFS, and cgroups. By the end, we build a working container using kernel primitives — no Docker required.
+linux
+namespaces
+cgroups
+overlayfs
+internals
+Start from the beginning →
+Tutorial · 10 parts
+What is a Pod?
+Kubernetes' Smallest Unit from the Inside Out
+A Pod is not a container. It is an abstraction that groups one or more containers sharing network and storage namespaces. We dissect its anatomy, the pause container, the lifecycle, and how kubelet actually brings it up.
+kubernetes
+pods
+kubelet
+networking
+internals
+Start from the beginning →
+Tutorial · 10 parts
+What is a Service?
+Virtual IPs, kube-proxy, and the Path of a Packet
+A Service is not a process or a network interface. It is a virtual IP the kernel intercepts through iptables or IPVS rules. We analyze kube-proxy, EndpointSlices, proxy modes, and trace the complete path of a packet from a Pod to its destination.
+kubernetes
+services
+kube-proxy
+iptables
+networking
+Start from the beginning →
+Blog
+April 10, 2026
+How to Migrate kube-proxy to nftables Mode
+nftables reached GA in Kubernetes 1.33 and is the recommended mode for new installations. This guide covers migrating from iptables step by step, with cluster verification.
+kube-proxy
+nftables
+networking
+kubernetes
+February 12, 2026
+How to Enable IPVS Mode in kube-proxy
+iptables mode evaluates rules sequentially — with thousands of Services, that scales poorly. IPVS uses O(1) hash tables. This post shows how to switch modes in a running cluster without downtime.
+kube-proxy
+ipvs
+networking
+performance

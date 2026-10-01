@@ -1,0 +1,41 @@
+Tutorial · 10 partes
+¿Qué es un Pod?
+La unidad mínima de Kubernetes desde adentro
+Un Pod no es un contenedor. Es una abstracción que agrupa uno o más contenedores que comparten namespaces de red y almacenamiento. Entendemos su anatomía, el contenedor pause, el ciclo de vida y cómo kubelet lo levanta realmente.
+kubernetes
+pods
+kubelet
+networking
+internals
+Contenido
+01
+Introducción: un Pod no es un contenedor
+→
+02
+El problema que un Pod resuelve
+→
+03
+El contenedor pause: el ancla de los namespaces del Pod
+→
+04
+Cómo kubelet crea un Pod paso a paso
+→
+05
+CNI: cómo el Pod obtiene su IP
+→
+06
+Anatomía del spec: el YAML como instrucciones al kernel
+→
+07
+Pods multi-contenedor: sidecars e init containers
+→
+08
+Ciclo de vida: fases, probes y restartPolicy
+→
+09
+Cómo crear un Pod desde 0
+→
+10
+Resumen: el mapa completo
+→
+Comenzar desde el principio →

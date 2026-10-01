@@ -1,0 +1,41 @@
+Tutorial · 10 parts
+What is a Service?
+Virtual IPs, kube-proxy, and the Path of a Packet
+A Service is not a process or a network interface. It is a virtual IP the kernel intercepts through iptables or IPVS rules. We analyze kube-proxy, EndpointSlices, proxy modes, and trace the complete path of a packet from a Pod to its destination.
+kubernetes
+services
+kube-proxy
+iptables
+networking
+Contents
+01
+Introduction: The Problem a Service Solves
+→
+02
+The Virtual IP That Does Not Exist
+→
+03
+kube-proxy and Proxy Modes
+→
+04
+iptables Rules in Depth
+→
+05
+EndpointSlices
+→
+06
+Service Types
+→
+07
+DNS and CoreDNS
+→
+08
+The Complete Path of a Packet
+→
+09
+How to Create a Service from Scratch
+→
+10
+Summary
+→
+Start from the beginning →

@@ -1,0 +1,58 @@
+Kubernetes for Beginners
+Chapter 4 of 21 · Section 6 of 7
+Rollback and Revisions
+The rollout went well most of the time. But sometimes it doesn't. An image has a bug that only shows up under real load, an env var got changed wrong, a DB migration did something different from what the changelog said. The whole point of having a versioning layer on top of ReplicaSet (that's why Deployment exists) is to make rolling back trivial.
+The command that matters
+kubectl rollout undo deployment/web
+That sends you back to the immediately previous revision. If you screwed up the rollout you just did, this is your panic button. It works because the previous ReplicaSet is still alive with replicas: 0, waiting.
+What happens underneath:
+The Deployment controller reads the rollout history and finds revision N-1.
+Sets the Deployment's template to that revision's template.
+Starts a rolling update — but "backwards": it bumps replicas on the old RS up and on the current one down.
+When it finishes, the old RS has all replicas back. The RS you just generated stays at replicas: 0 (now it's the "previous-previous", in case you regret your regret).
+Roll back to a specific revision
+To go further back:
+kubectl rollout history deployment/web
+REVISION CHANGE-CAUSE
+1 <none>
+2 kubectl set image deployment/web nginx=nginx:1.28
+3 kubectl set image deployment/web nginx=nginx:1.29 ← current
+kubectl rollout undo deployment/web --to-revision=1
+Jumps straight to revision 1. Anything "in between" stays in the history — undo doesn't delete it.
+What happens to Pods during a rollback
+It's the exact same mechanic as a normal rolling update, respecting maxSurge and maxUnavailable. If your app has a readiness probe, the old version's Pods start receiving traffic again as they respond OK; the new (broken) ones get pulled from the Service as they're removed.
+That's why a rollback isn't magic: it requires the previous version to still be deployable. If meanwhile the ConfigMaps it used got deleted, the Secrets got rotated, or the DB schema changed, the rollback will fail just as ridiculously as the original rollout.
+Why old ReplicaSets stay alive
+By default, a Deployment keeps up to 10 old ReplicaSets as history. Controlled by:
+spec:
+revisionHistoryLimit: 10
+Lowering it saves objects in etcd; raising it gives you more rollback options. In big clusters with lots of Deployments and daily rollouts, keeping it lower (e.g. 3) is reasonable.
+Important: each old ReplicaSet has replicas: 0, so it uses no cluster resources — only database objects. The "it's using memory" feeling is false; dead Pods don't exist, only the empty ReplicaSet does.
+Rollback isn't your plan A
+Worth saying: rollback exists for when other defenses failed. The ones that should stop a bad rollout before it gets there:
+Serious readiness probes — if new Pods never become Ready, the Deployment doesn't advance the rollout. We covered them in chapter 3.
+maxUnavailable: 0 — guarantees you never have less than declared capacity during the rollout.
+progressDeadlineSeconds — a timeout. If the rollout doesn't progress in X seconds, the Deployment is marked Progressing=False. Your pipeline can detect this and undo automatically.
+More careful strategies (canary, blue/green) — coming in chapter 11.
+But when they all fail, kubectl rollout undo is still there.
+A typical rollback session
+# You realize something is wrong after the update:
+kubectl rollout status deployment/web
+# Waiting... (the new Pods aren't responding well)
+# Check history:
+kubectl rollout history deployment/web
+# Roll back to the previous revision:
+kubectl rollout undo deployment/web
+# Watch it revert:
+kubectl rollout status deployment/web
+# deployment "web" successfully rolled back
+# Confirm the image went back to the old one:
+kubectl get deploy web -o jsonpath='{.spec.template.spec.containers[0].image}'
+For the KCNA
+kubectl rollout undo deployment/X — go back to the previous revision.
+--to-revision=N — go back to a specific one.
+History lives in the old ReplicaSets, controlled by spec.revisionHistoryLimit.
+A ReplicaSet with replicas: 0 consumes no resources — only space in etcd.
+Rollback = reverse rolling update. Respects maxSurge, maxUnavailable, and readiness probes.
+Rollback fails if the old version is no longer deployable (ConfigMaps deleted, DB schema changed).
+We close in the next sub-part with the chapter recap and the bridge to chapter 5 (ConfigMaps and Secrets), where we'll see how to pass configuration to all these apps you now know how to deploy.

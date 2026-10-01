@@ -1,0 +1,77 @@
+¿Qué es un Service?
+Parte 9 de 10
+Cómo crear un Service desde 0
+Hasta aquí vimos cómo funciona el mecanismo. Ahora vamos a demostrarlo de la forma más directa posible: eliminar el Service de Kubernetes, crear las reglas iptables a mano, y verificar que el tráfico llega a los Pods sin que Kubernetes toque nada.
+Punto de partida
+Tenemos los tres Pods de nginx corriendo en 192.168.1.4, 192.168.1.5 y 192.168.1.6. Eliminamos el Service para que kube-proxy limpie sus reglas:
+kubectl delete svc nginx
+# service "nginx" deleted
+iptables -t nat -L KUBE-SERVICES -n | grep 10.111
+# (vacío — kube-proxy eliminó todas las reglas del Service)
+-t nat selecciona la tabla nat, que es donde viven todas las reglas de kube-proxy. -L KUBE-SERVICES lista solo esa chain — el punto de entrada desde donde kube-proxy despacha el tráfico hacia cada Service. -n imprime IPs sin resolver nombres DNS. Grep filtra por la ClusterIP que tenía el Service. El output vacío confirma que kube-proxy ya limpió sus reglas.
+Las chains KUBE-SVC-* y KUBE-SEP-* del Service ya no existen. Los Pods siguen corriendo, pero no hay ningún mecanismo que distribuya tráfico a ellos. Vamos a construirlo nosotros.
+Elegir una IP virtual
+Usamos 10.99.99.99 como nuestra ClusterIP manual. Antes de crear cualquier regla, verificamos que esa IP realmente no existe en el nodo:
+ip addr | grep 10.99.99.99
+# (sin output)
+ping -c 1 10.99.99.99
+# PING 10.99.99.99 (10.99.99.99) 56(84) bytes of data.
+# 1 packets transmitted, 0 received, 100% packet loss
+ip addr lista todas las interfaces de red del nodo con sus direcciones asignadas. El grep sin output confirma que 10.99.99.99 no está en ninguna interfaz. El ping envía un paquete ICMP — sin ninguna interfaz ni regla que lo intercepte, el kernel no sabe cómo entregarlo y lo descarta. Eso es exactamente lo que queremos confirmar antes de empezar: la IP no existe, y la vamos a hacer funcionar solo con iptables.
+Crear las chains
+iptables -t nat -N DEMO-SVC
+iptables -t nat -N DEMO-SEP-1
+iptables -t nat -N DEMO-SEP-2
+iptables -t nat -N DEMO-SEP-3
+-N crea una chain nueva (New) con el nombre dado. Las chains son contenedores vacíos de reglas — crearlas no tiene ningún efecto sobre el tráfico todavía. DEMO-SVC va a hacer el rol de KUBE-SVC-*: recibir el tráfico hacia la IP virtual y distribuirlo. DEMO-SEP-1/2/3 van a hacer el rol de KUBE-SEP-*: cada una apunta a un Pod específico con una regla DNAT.
+Enganchar la IP virtual en netfilter
+iptables -t nat -A OUTPUT -p tcp -d 10.99.99.99 --dport 80 -j DEMO-SVC
+iptables -t nat -A PREROUTING -p tcp -d 10.99.99.99 --dport 80 -j DEMO-SVC
+-A agrega (Append) una regla al final de la chain indicada. OUTPUT intercepta paquetes generados localmente en el nodo — por ejemplo, un curl que ejecutas desde el controlplane. PREROUTING intercepta paquetes que llegan por la red antes de que el kernel tome la decisión de routing — cubre el caso de tráfico que viene de otro nodo o Pod. Necesitamos los dos hooks para que la IP virtual funcione desde cualquier origen. -p tcp restringe la regla a TCP. -d 10.99.99.99 filtra por IP destino. --dport 80 filtra por puerto destino. -j DEMO-SVC hace el jump a nuestra chain cuando los tres filtros coinciden.
+Load balancing estadístico
+iptables -t nat -A DEMO-SVC -m statistic --mode random --probability 0.33333333349 -j DEMO-SEP-1
+iptables -t nat -A DEMO-SVC -m statistic --mode random --probability 0.50000000000 -j DEMO-SEP-2
+iptables -t nat -A DEMO-SVC -j DEMO-SEP-3
+-m statistic carga el módulo de estadísticas de iptables. --mode random --probability N hace que la regla se aplique con probabilidad N sobre los paquetes que lleguen a ese punto de la chain. Las reglas se evalúan en orden: el primer paquete tiene 33% de chance de ir a SEP-1. Si no fue a SEP-1, el paquete llega a la segunda regla con probabilidad 50% de ir a SEP-2 — que sobre el total equivale al 33% restante. Si tampoco fue a SEP-2, cae en la tercera regla sin condición y va a SEP-3. El resultado matemático es distribución uniforme 1/3 para cada Pod.
+La tercera regla no tiene -m statistic porque ya no hay elección: todos los paquetes que llegaron hasta ahí van a SEP-3 sin condición.
+DNAT a cada Pod
+iptables -t nat -A DEMO-SEP-1 -p tcp -j DNAT --to-destination 192.168.1.4:80
+iptables -t nat -A DEMO-SEP-2 -p tcp -j DNAT --to-destination 192.168.1.5:80
+iptables -t nat -A DEMO-SEP-3 -p tcp -j DNAT --to-destination 192.168.1.6:80
+DNAT (Destination NAT) es el target que reescribe la IP y puerto de destino del paquete. --to-destination 192.168.1.4:80 reemplaza la IP destino original (10.99.99.99:80) por la IP real del Pod. Después de este punto, el paquete tiene destino 192.168.1.4:80 — el kernel puede enrutarlo normalmente porque esa IP sí existe en la red de Pods. conntrack registra la traducción para poder reescribir el origen en la respuesta.
+Verificar las reglas
+iptables -t nat -L DEMO-SVC -n --line-numbers
+# Chain DEMO-SVC (2 references)
+# num target prot opt source destination
+# 1 DEMO-SEP-1 0 -- 0.0.0.0/0 0.0.0.0/0 statistic mode random probability 0.33333333349
+# 2 DEMO-SEP-2 0 -- 0.0.0.0/0 0.0.0.0/0 statistic mode random probability 0.50000000000
+# 3 DEMO-SEP-3 0 -- 0.0.0.0/0 0.0.0.0/0
+iptables -t nat -L DEMO-SEP-1 -n
+# Chain DEMO-SEP-1 (1 references)
+# target prot opt source destination
+# DNAT 6 -- 0.0.0.0/0 0.0.0.0/0 tcp to:192.168.1.4:80
+--line-numbers agrega el número de regla en la columna num — útil para saber el orden exacto en que se evalúan. El (2 references) en el encabezado indica que DEMO-SVC es referenciada desde dos reglas: la de OUTPUT y la de PREROUTING. El 6 en la columna prot de DEMO-SEP-1 es el número de protocolo TCP en el kernel — iptables lo muestra como número cuando se usa -n.
+Probar
+curl -s http://10.99.99.99:80 | grep title
+# <title>Welcome to nginx!</title>
+-s silencia el progress bar de curl. El pipe a grep title filtra la respuesta HTML para mostrar solo la línea del título. Funciona. La IP 10.99.99.99 no existe en ninguna interfaz, ningún proceso escucha en ella, Kubernetes no sabe que existe — y aun así el tráfico llega a nginx. El kernel interceptó el paquete en OUTPUT, evaluó las reglas, aplicó el DNAT, y conntrack manejó el viaje de vuelta.
+Para confirmar que el load balancing distribuye a los tres Pods, hacemos varias requests y consultamos conntrack:
+for i in $(seq 1 9); do curl -s http://10.99.99.99:80 > /dev/null; done
+conntrack -L -p tcp --dport 80 2>/dev/null | grep 10.99.99.99
+# tcp 6 TIME_WAIT src=172.30.1.2 dst=10.99.99.99 ... src=192.168.1.4 dst=192.168.0.0 ...
+# tcp 6 TIME_WAIT src=172.30.1.2 dst=10.99.99.99 ... src=192.168.1.5 dst=192.168.0.0 ...
+# tcp 6 TIME_WAIT src=172.30.1.2 dst=10.99.99.99 ... src=192.168.1.6 dst=192.168.0.0 ...
+El for loop hace 9 requests al puerto 80 descartando el output (> /dev/null) — solo nos interesa generar entradas en conntrack. conntrack -L lista todas las conexiones que el kernel está rastreando. -p tcp --dport 80 filtra solo conexiones TCP al puerto 80. 2>/dev/null descarta la línea de resumen que conntrack imprime en stderr. Cada línea del output muestra dos pares IP: el primero es la conexión vista desde el cliente (src=172.30.1.2 dst=10.99.99.99), el segundo es cómo quedó después del DNAT (src=192.168.1.4/5/6 dst=192.168.0.0). Los tres Pods aparecen como origen en el lado derecho — el load balancing distribuyó las requests.
+Limpiar
+iptables -t nat -D OUTPUT -p tcp -d 10.99.99.99 --dport 80 -j DEMO-SVC
+iptables -t nat -D PREROUTING -p tcp -d 10.99.99.99 --dport 80 -j DEMO-SVC
+iptables -t nat -F DEMO-SVC
+iptables -t nat -F DEMO-SEP-1
+iptables -t nat -F DEMO-SEP-2
+iptables -t nat -F DEMO-SEP-3
+iptables -t nat -X DEMO-SVC
+iptables -t nat -X DEMO-SEP-1
+iptables -t nat -X DEMO-SEP-2
+iptables -t nat -X DEMO-SEP-3
+-D elimina (Delete) una regla específica de una chain built-in — hay que especificar la regla exacta que se quiere borrar. -F vacía (Flush) todas las reglas de una chain — necesario antes de poder eliminarla. -X elimina (eXpunge) una chain definida por el usuario — solo funciona si la chain está vacía y no tiene referencias. El orden importa: primero se eliminan las referencias desde OUTPUT y PREROUTING con -D, luego se vacían las chains con -F, y por último se eliminan las chains vacías con -X.
+Lo que acabamos de hacer es exactamente lo que kube-proxy hace cada vez que se crea un Service — con la diferencia de que kube-proxy lo hace en milisegundos, para todos los nodos del cluster simultáneamente, y lo mantiene sincronizado con el estado de los Pods via EndpointSlices. La implementación de Kubernetes es más robusta, pero el mecanismo es idéntico al que acabamos de escribir a mano.

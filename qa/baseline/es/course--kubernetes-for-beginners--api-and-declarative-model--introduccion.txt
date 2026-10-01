@@ -1,0 +1,36 @@
+Kubernetes para principiantes
+Capítulo 2 de 21 · Sección 1 de 7
+Introducción: el contrato declarativo
+En el capítulo anterior vimos la topografía: qué procesos corren dónde y cómo fluyen los eventos entre ellos. Ahora bajamos una capa. Porque hay una palabra que repetimos todo el tiempo — declarativo — y que normalmente se explica mal. Muchos tutoriales la traducen como "escribes YAML en vez de ejecutar comandos". Eso está bien como cliché, pero no captura lo que realmente significa ni por qué importa.
+Ser declarativo no es una convención de sintaxis. Es un contrato entre tú y el cluster: tú describes el estado que quieres, y el sistema se compromete a alcanzarlo y mantenerlo. Todo lo demás — objetos, controllers, apiserver, el loop de reconciliación — son consecuencias de ese contrato.
+Imperativo vs declarativo: el contraste real
+Imagina que quieres levantar tres réplicas de un servicio.
+En un mundo imperativo harías algo así:
+ssh server1 "docker run -d my-app:v1"
+ssh server2 "docker run -d my-app:v1"
+ssh server3 "docker run -d my-app:v1"
+Tres comandos, cada uno diciendo "haz esto, ahora, aquí". Si uno falla, tú te enteras y lo reintenas. Si un servidor se cae mañana, tú te enteras y tú mueves el contenedor. Eres el controlador.
+En un mundo declarativo, en cambio, escribes:
+apiVersion: apps/v1
+kind: Deployment
+spec:
+replicas: 3
+# ...
+Y lo entregas al cluster. No le dices dónde ni cómo ni cuándo. Dices qué: "quiero 3 réplicas de esto corriendo". El cluster se encarga del resto — elegir nodos, descargar imágenes, arrancar contenedores, y seguir haciéndolo si algo cambia. Si un nodo se cae, otro toma el relevo. Si mataste un Pod a mano, el controller lo recrea. Tu YAML no cambió, tu intención sigue vigente.
+Por qué esto importa en sistemas distribuidos
+El contrato declarativo no es elegancia — es una necesidad práctica. En un cluster con cientos de nodos y miles de Pods, las cosas fallan constantemente. Redes se cortan. Discos se llenan. Procesos crashean. Un modelo imperativo requeriría que alguien (tú, un humano, o un script complejo) reaccione a cada falla en tiempo real. Imposible a escala.
+El modelo declarativo resuelve eso con tres propiedades:
+Idempotencia: aplicar el mismo YAML dos veces produce el mismo estado. No importa cuántas veces se reintente.
+Convergencia: el sistema trabaja activamente para acercar el estado actual al deseado, bucle tras bucle, hasta que coincidan.
+Retries gratis: como lo único que el cluster necesita es el estado deseado, cualquier operación se puede reintentar sin pensarlo.
+Esas tres propiedades son exactamente lo que necesitas para que un sistema distribuido sobreviva a sus propias fallas. El modelo declarativo es la forma que Kubernetes encontró para codificarlas.
+El precio que pagas
+A cambio, pierdes control fino sobre cuándo pasan las cosas. Tú pides "3 réplicas"; el scheduler decide cuándo arrancan, el kubelet decide cuándo descarga la imagen, el runtime decide cuándo se vuelve "running". No hay garantía de tiempos. Solo hay garantía de que, eventualmente, el estado observado va a coincidir con el deseado.
+Para la mayoría de cargas, ese es un trade-off aceptable. Para casos donde el tiempo importa — arranque ordenado, dependencias secuenciales — existen primitivas específicas (init containers, StatefulSets, readinessGates) que veremos más adelante.
+Lo que vamos a ver en este capítulo
+Objetos, recursos y el loop de reconciliación: cómo se representa cada cosa en el cluster y qué significa spec vs status.
+Grupos de API, versiones y anatomía de un objeto: cómo leer un YAML como un experto, qué significa apps/v1 y por qué hay versiones alpha, beta y stable.
+Controllers: el patrón que hace funcionar todo el modelo.
+CRDs y extensibilidad: cómo la API no está fija — puedes añadirle tus propios tipos.
+kubectl, --dry-run y server-side apply: lo que cambia cuando trabajas con el modelo declarativo desde la línea de comandos.
+Al terminar, cuando alguien diga "Kubernetes es declarativo", no vas a asentir por reflejo — vas a saber exactamente qué implica eso a nivel de API, de controllers y de ingeniería distribuida.

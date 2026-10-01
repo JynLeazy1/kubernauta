@@ -1,0 +1,26 @@
+¿Qué es realmente un contenedor?
+Parte 1 de 9
+Introducción: ¿qué es realmente un contenedor?
+Si le preguntas a alguien qué es un contenedor, probablemente diga algo como "una VM liviana" o "un proceso aislado". Ninguna de las dos respuestas es del todo correcta.
+Un contenedor es un proceso ordinario de Linux al que el kernel le aplica un conjunto de mecanismos de aislamiento y control. No hay hypervisor, no hay kernel propio, no hay hardware virtualizado. El contenedor comparte el kernel del host — lo que cambia es cómo ese proceso percibe el sistema que lo rodea.
+Esta serie desmonta esa ilusión pieza por pieza, con comandos reales que puedes ejecutar en cualquier Linux moderno.
+Qué cubriremos
+Linux Namespaces — la ilusión de estar solo: PID, red, filesystem, hostname y más.
+Linux Capabilities — por qué "root dentro de un contenedor" no es el mismo root del host.
+chroot y pivot_root — cómo cambiar la raíz del filesystem y por qué pivot_root es más seguro que chroot.
+OverlayFS — el filesystem de capas que hace posible las imágenes Docker.
+cgroups v1 y v2 — control real de CPU, memoria e I/O.
+Construyendo un contenedor desde 0 — juntamos todo con unshare, pivot_root y un rootfs real.
+Lo que hace el container runtime — qué hace runc exactamente cuando ejecutas docker run.
+Resumen de la serie — el mapa completo y próximos pasos.
+Prerrequisitos
+Para seguir los ejemplos necesitas:
+Un Linux moderno con kernel ≥ 5.10 (Ubuntu 22.04+, Debian 12+, Fedora 37+)
+docker instalado (para los ejemplos comparativos)
+Acceso a sudo
+Las herramientas: util-linux (unshare, lsns), iproute2, libcap2-bin (capsh)
+# Ubuntu/Debian
+sudo apt install util-linux iproute2 libcap2-bin
+La pregunta central
+Al final de esta serie deberías poder responder: ¿puedo crear un "contenedor" con comandos del kernel sin Docker?
+La respuesta es sí. Y hacerlo te enseña más sobre contenedores que años de usar docker run.

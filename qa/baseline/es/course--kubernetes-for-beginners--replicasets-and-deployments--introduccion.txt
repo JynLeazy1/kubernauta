@@ -1,0 +1,24 @@
+Kubernetes para principiantes
+Capítulo 4 de 21 · Sección 1 de 7
+Introducción: por qué no usas Pods directamente
+El capítulo anterior cerró con una frase clave: en producción, los Pods los crea y los vigila un controller. Toca abrir el más usado de todos: el Deployment. Y para entenderlo, hay que ver primero su pieza interna, el ReplicaSet.
+El problema que resuelven
+Imaginá que pones un Pod en un cluster: kubectl apply -f mi-app.yaml. Funciona, sirve tráfico, todo bien. ¿Qué pasa si:
+El nodo donde corre se cae?
+El proceso de la app crashea?
+Necesitas pasar de 1 réplica a 10?
+Tienes que actualizar la imagen sin downtime?
+Te equivocaste con la versión y quieres regresarte?
+La respuesta corta: el Pod por sí solo no resuelve nada de eso. El que resuelve es el Deployment, apoyándose en su brazo derecho, el ReplicaSet.
+La pareja: ReplicaSet y Deployment
+Resumido en dos frases:
+ReplicaSet: un controller cuya única tarea es "siempre hay exactamente N Pods que matchean este selector". Si hay menos, crea. Si hay más, mata.
+Deployment: una capa por encima del ReplicaSet que añade versiones: cada cambio crea un nuevo ReplicaSet y migra Pods entre el viejo y el nuevo. Lo que llamamos rolling update.
+Casi nadie crea ReplicaSets directamente — los gestiona el Deployment por debajo. Pero conviene conocer la pieza, porque cuando algo falla y haces kubectl get rs, te encuentras con dos o tres ReplicaSets que el Deployment fue dejando atrás. Saber qué son evita pánico.
+Lo que vamos a ver en este capítulo
+ReplicaSet: cómo funciona el loop "mantén N réplicas" desde adentro.
+Deployment: la capa de versiones encima del ReplicaSet, con su YAML típico.
+Labels y selectors: el pegamento del modelo. Sin esto, nada de lo demás funciona.
+Escalar y actualizar: comandos del día a día (kubectl scale, kubectl set image).
+Rollback: cómo se vuelve atrás cuando una versión sale mal.
+Al terminar, vas a poder leer un Deployment manifest, explicar qué pasa cuando aplicas un cambio, y saber exactamente cómo recuperar el cluster cuando una imagen rota llega a producción. Que pasa más seguido de lo que crees.

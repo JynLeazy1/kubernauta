@@ -1,0 +1,97 @@
+¿Qué es un Service?
+Parte 7 de 10
+DNS y CoreDNS
+Hasta ahora accedimos a los Services por su ClusterIP directamente. En la práctica, ningún código hardcodea esas IPs — usan nombres como nginx o nginx.default.svc.cluster.local. Eso funciona porque cada Pod tiene configurado un servidor DNS que resuelve esos nombres: CoreDNS.
+CoreDNS en el cluster
+CoreDNS corre como un Deployment en kube-system — a diferencia de kube-proxy, que es un DaemonSet, CoreDNS no necesita estar en cada nodo porque el tráfico DNS es tráfico de red normal que puede ir a cualquier Pod:
+kubectl get pods -n kube-system -l k8s-app=kube-dns -o wide
+# NAME READY STATUS NODE
+# coredns-7db6d8ff4d-4xgkp 1/1 Running controlplane
+# coredns-7db6d8ff4d-9wt9h 1/1 Running controlplane
+kubectl get svc kube-dns -n kube-system
+# NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+# kube-dns ClusterIP 10.96.0.10 <none> 53/UDP,53/TCP,9153/TCP 9d
+La IP 10.96.0.10 es la ClusterIP del Service kube-dns. Es la misma IP que aparecía como servidor en el output de nslookup de la parte anterior. Esa IP no cambia entre reinicios — es una ClusterIP estable que apunta a los Pods de CoreDNS, igual que cualquier otro Service.
+Cómo un Pod sabe a quién preguntarle
+Cuando kubelet crea un Pod, configura su /etc/resolv.conf automáticamente. Puedes verlo desde dentro de cualquier contenedor:
+kubectl exec -it nginx-66686b6766-4l9zs -- cat /etc/resolv.conf
+# search default.svc.cluster.local svc.cluster.local cluster.local
+# nameserver 10.96.0.10
+# options ndots:5
+Tres líneas, tres conceptos. nameserver 10.96.0.10 le dice al resolver del Pod que todas las consultas DNS van a CoreDNS. search default.svc.cluster.local svc.cluster.local cluster.local son los dominios de búsqueda — cuando resuelves un nombre sin punto o con pocos componentes, el resolver los prueba en orden hasta encontrar una respuesta. options ndots:5 define el umbral: si un nombre tiene menos de 5 puntos, se considera relativo y se prueban los search domains antes de intentarlo como FQDN absoluto.
+Eso explica por qué curl http://nginx funciona desde un Pod en el mismo namespace: el resolver expande nginx a nginx.default.svc.cluster.local automáticamente porque default.svc.cluster.local es el primer search domain.
+El Corefile: configuración de CoreDNS
+CoreDNS se configura a través de un ConfigMap llamado coredns en kube-system. El formato es el Corefile:
+kubectl get configmap coredns -n kube-system -o yaml
+# data:
+# Corefile: |
+# .:53 {
+# errors
+# health {
+# lameduck 5s
+# }
+# ready
+# kubernetes cluster.local in-addr.arpa ip6.arpa {
+# pods insecure
+# fallthrough in-addr.arpa ip6.arpa
+# ttl 30
+# }
+# prometheus :9153
+# forward . /etc/resolv.conf {
+# max_concurrent 1000
+# }
+# cache 30 {
+# disable success cluster.local
+# disable denial cluster.local
+# }
+# loop
+# reload
+# loadbalance
+# }
+El bloque kubernetes cluster.local es el plugin que responde las consultas del cluster. Maneja el dominio cluster.local y las zonas de reverse DNS (in-addr.arpa, ip6.arpa). La directiva pods insecure habilita la resolución de Pods por IP en formato ip-con-guiones.namespace.pod.cluster.local. El bloque forward . /etc/resolv.conf envía cualquier consulta que no sea del cluster al DNS upstream del nodo.
+El bloque cache 30 merece atención especial: tiene disable success cluster.local y disable denial cluster.local. Eso significa que CoreDNS no cachea las respuestas DNS para el dominio cluster.local — ni las exitosas ni las negativas. La razón es que los Services y Pods del cluster pueden cambiar en cualquier momento, y un cache stale podría hacer que un Pod resuelva una IP que ya no existe. El cache de 30 segundos aplica solo para consultas externas que van al upstream.
+Qué devuelve CoreDNS según el tipo de Service
+Para un Service ClusterIP normal, CoreDNS devuelve un registro A con la ClusterIP. Para un Service Headless (clusterIP: None), devuelve un registro A por cada Pod que esté ready. Para un Service ExternalName, devuelve un CNAME al nombre externo configurado. El TTL por defecto es 30 segundos, configurable en el Corefile.
+Para Services con puertos con nombre, CoreDNS también publica registros SRV que permiten descubrir tanto el puerto como el protocolo. Para esto el Service necesita que el puerto tenga un name explícito en su spec:
+kubectl apply -f web.yaml
+# deployment.apps/web created
+# service/web created
+kubectl get svc web
+# NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+# web ClusterIP 10.104.218.185 <none> 80/TCP 16s
+kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup -type=SRV _http._tcp.web.default.svc.cluster.local
+# Server: 10.96.0.10
+# Address: 10.96.0.10:53
+#
+# _http._tcp.web.default.svc.cluster.local service = 0 100 80 web.default.svc.cluster.local
+El registro SRV devuelve cuatro campos: prioridad (0), peso (100), puerto (80), y el hostname destino (web.default.svc.cluster.local). Un cliente que soporte descubrimiento via SRV puede resolver el nombre del Service sin necesitar conocer el puerto de antemano — lo obtiene del propio DNS.
+DNS para Pods individuales
+Además de los Services, CoreDNS puede resolver Pods directamente usando su IP con guiones en lugar de puntos. La IP 192.168.1.5 se convierte en 192-168-1-5.default.pod.cluster.local:
+kubectl exec -it nginx-66686b6766-4l9zs -- nslookup 192-168-1-5.default.pod.cluster.local
+# Name: 192-168-1-5.default.pod.cluster.local
+# Address: 192.168.1.5
+Esta resolución la habilita pods insecure en el Corefile. Se llama "insecure" porque cualquier Pod puede consultar la IP de cualquier otro Pod por nombre — no hay validación de que el Pod que pregunta tenga permiso para conocer esa IP.
+ndots:5 y el costo oculto del DNS
+El /etc/resolv.conf tiene options ndots:5. La documentación dice que si un nombre tiene menos de 5 puntos, se prueban los search domains antes de intentarlo como nombre absoluto. Para verificarlo, lo más obvio es capturar el tráfico DNS mientras resolvemos un nombre externo desde un Pod:
+tcpdump -i any -nn 'port 53' -l | grep api.google.com
+# 192.168.1.7.45444 > 192.168.0.5.53: A? api.google.com. (32)
+# 192.168.1.7.45444 > 192.168.0.5.53: AAAA? api.google.com. (32)
+# 192.168.0.5 > 8.8.8.8.53: AAAA? api.google.com. (32)
+# 192.168.0.5 > 1.1.1.1.53: A? api.google.com. (32)
+Raro — solo dos queries, directo a api.google.com. sin ningún intento con search domains. Y CoreDNS reenvía al upstream en paralelo a 8.8.8.8 y 1.1.1.1 simultáneamente. ¿Dónde está el cascade de ndots?
+La respuesta está en qué herramienta hace la consulta. nslookup hace queries DNS directas sin pasar por el resolver de la librería C — ignora el ndots y los search domains por completo. Para ver el comportamiento real hay que usar una aplicación que use getaddrinfo().
+Habilitamos el plugin log en CoreDNS para ver todas las queries en tiempo real:
+kubectl edit configmap coredns -n kube-system # agregar 'log' al bloque .:53
+kubectl rollout restart deployment coredns -n kube-system
+kubectl logs -n kube-system -l k8s-app=kube-dns -f
+Y en otra terminal, corremos apt update dentro de uno de los Pods nginx — apt usa getaddrinfo() para resolver deb.debian.org. Lo que aparece en los logs de CoreDNS:
+# [INFO] 192.168.1.5 - "AAAA IN deb.debian.org.default.svc.cluster.local." NXDOMAIN 0.000187s
+# [INFO] 192.168.1.5 - "A IN deb.debian.org.default.svc.cluster.local." NXDOMAIN 0.001814s
+# [INFO] 192.168.1.5 - "AAAA IN deb.debian.org.svc.cluster.local." NXDOMAIN 0.000119s
+# [INFO] 192.168.1.5 - "A IN deb.debian.org.svc.cluster.local." NXDOMAIN 0.000114s
+# [INFO] 192.168.1.5 - "AAAA IN deb.debian.org.cluster.local." NXDOMAIN 0.000289s
+# [INFO] 192.168.1.5 - "A IN deb.debian.org.cluster.local." NXDOMAIN 0.000999s
+# [INFO] 192.168.1.5 - "A IN deb.debian.org." NOERROR 0.024114s
+# [INFO] 192.168.1.5 - "AAAA IN deb.debian.org." NOERROR 0.024444s
+Ahí está. 8 queries para resolver un dominio: A y AAAA para cada uno de los tres search domains — seis NXDOMAINs — antes de llegar al nombre absoluto correcto. deb.debian.org tiene 2 puntos, menos de 5, entonces el resolver de libc recorre todos los search domains primero. Esto le pasa a cualquier aplicación que use getaddrinfo(): Go, Python, Node.js, Java — todas siguen las mismas reglas del resolver.
+Para evitarlo, el punto final explícito es suficiente: curl http://deb.debian.org. indica al resolver que es un FQDN absoluto y va directo al upstream. En producción también es común reducir ndots a 2 o 3 en el dnsConfig del Pod para aplicaciones que hacen muchas llamadas externas. Una vez terminada la verificación, remové el plugin log del Corefile y reiniciá CoreDNS — loggear cada query en producción tiene un costo no trivial.

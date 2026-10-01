@@ -1,0 +1,48 @@
+What is a Pod?
+Part 10 of 10
+Summary: The Complete Map
+We started by saying that a Pod is not a container. We finish having built one by hand with unshare, pivot_root, and OverlayFS. In between, we walked through every layer that makes it up.
+The complete map
+The kernel is the foundation. Namespaces — net, IPC, and UTS shared among all containers in the Pod; PID and mnt owned by each one — are the reason containers can communicate over localhost without being the same process. cgroups define the CPU and memory limits the kernel enforces per container.
+The pause container holds those shared namespaces. It is a 743 KB process that does nothing except exist and handle signals — its only purpose is to be the Pod's anchor. If an application container dies, only that container restarts; pause and its namespaces stay intact, the Pod's IP does not change.
+On top of that network, the CNI plugin creates the veth pair and assigns the IP. It is a binary the runtime invokes with environment variables and a JSON on stdin — no server, no long-running protocol.
+The Pod spec is the translation of all of the above into YAML. resources.limits becomes cpu.max and memory.max in the cgroup. securityContext becomes setuid, no_new_privs, and capability flags. volumeMounts are bind mounts before pivot_root.
+kubelet is the reconciler. It translates the spec into CRI calls — RunPodSandbox, CreateContainer, StartContainer — and keeps the actual node state aligned with what the user declared.
+The end-to-end flow
+kubectl apply
+→ API server saves the Pod in etcd
+→ scheduler assigns nodeName
+→ kubelet detects the Pod
+→ CRI: RunPodSandbox → pause + namespaces (net/ipc/uts)
+→ CNI plugin → veth pair + IP assigned
+→ CRI: CreateContainer × N → containers join the sandbox
+→ CRI: StartContainer × N → pivot_root + process exec
+→ kubelet loop → probes + state reporting
+Evidence gathered
+The series is not only theory — along the way we ran experiments that confirm each thesis:
+pause owns the netns; the application containers do not. In Part 3, lsns -p <pause_pid> shows NPROCS=3 for the shared namespaces (net, ipc, uts) and NPROCS=1 for the owned ones (mnt, pid). The nginx process appears in the pause's netns process list, but its /proc/<pid>/ns/net is a symlink to the pause's inode — confirming it joins, it does not own.
+Only the dying container restarts. The test-restart.yaml manifest in Part 3 has an app container that crashes every 10 seconds and a sidecar that writes a timestamp every 2. kubectl get pod -w shows the cycle 2/2 Running → 1/2 Error → 1/2 CrashLoopBackOff → 2/2 Running while kubectl logs sidecar shows no gap. The Pod's IP also does not change.
+YAML materialises into kernel files. In Part 6 we took a Pod with resources.limits.cpu: 500m and limits.memory: 256Mi; the corresponding cgroup files report cpu.max = 50000 100000 and memory.max = 268435456, exactly the dimensions declared in YAML.
+Calico does not use a bridge. In Part 5, ip link show type veth reveals cali...@if3 interfaces with MAC ee:ee:ee:ee:ee:ee that are not attached to any bridge. ip route get <pod-ip> shows a dedicated /32 route pointing straight at the veth — the architectural difference with Flannel/cni0.
+The relationship with the previous tutorial
+If you came from the containers tutorial, you can now see the complete hierarchy:
+Physical node / VM
+└── kubelet
+└── Pod (scheduling unit)
+├── Shared namespaces (net, ipc, uts)
+├── pause container — holds the namespaces
+├── Init containers — sequential, finish before startup
+└── Regular containers
+├── Own OverlayFS (lowerdirs = image layers, upperdir = writes)
+└── Own cgroup (cpu.max, memory.max)
+What we did not cover
+Admission controllers and webhooks — the path through which controllers like Istio inject sidecars before the Pod reaches kubelet, and through which tools like Kyverno/OPA Gatekeeper enforce policies before scheduling.
+Downward API — how to pass Pod metadata (name, namespace, labels, IP) into the process via env vars or files in a volume.
+Ephemeral containers — the kubectl debug mechanism to inject temporary containers into a live Pod, useful for distroless images.
+Advanced scheduling — nodeSelector, taints/tolerations, affinity/anti-affinity, topology spread constraints, PriorityClass, and preemption. Part 4 covers that the scheduler assigns the node, not how it chooses.
+Intentionally breaking isolation — hostNetwork, hostPID, hostIPC, hostPath, privileged: true. Useful for node agents (Calico, kube-proxy, observability), dangerous in application workloads.
+Pod Disruption Budgets and graceful node shutdown — how Kubernetes coordinates drains so workloads never drop below their minimum replica count.
+OCI Image Spec and supply chain — what a manifest is, how images are signed, content addressability. We covered the filesystem images produce, not the distribution spec.
+Conclusion
+The next time someone says a Pod is the minimum unit of compute in Kubernetes, you will be able to explain why: which namespaces the kernel creates, what role the pause container plays, how the CNI assigns the network, and how each spec field translates into an operating system primitive that containers inherit when they join the sandbox.
+And if anyone tries to sell you that "Kubernetes is magic", you have your answer ready: no — it is four or five kernel syscalls chained by kubelet via a gRPC proto, materialising in kernel files you can read with cat.

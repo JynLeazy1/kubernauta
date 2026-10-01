@@ -1,0 +1,26 @@
+Kubernetes for Beginners
+Chapter 4 of 21 · Section 7 of 7
+Summary: Pod → ReplicaSet → Deployment
+We're closing the Deployments chapter. What was an ephemeral Pod in chapter 3 is now a managed unit with replication, scaling, and rollback. The Deployment → ReplicaSet → Pod chain gives you, almost for free, the properties people expect from "a cloud-native app".
+The mental map
+Three levels, each with a specific job:
+Pod: the environment where your containers run. No intelligence of its own — just the minimum unit.
+ReplicaSet: the controller that keeps N Pods matching a selector. It doesn't update images, just counts.
+Deployment: the version layer on top of ReplicaSet. Each change creates a new RS and rotates Pods between old and new. The old one stays at replicas: 0 as a rollback safety net.
+Labels are the glue connecting everything: Deployment → ReplicaSet → Pod, and later Service → Pod, NetworkPolicy → Pod, etc. If labels don't match, the system can't find its own parts.
+What we saw, compressed
+ReplicaSet: a loop that keeps N Pods. Adopts any Pod matching its selector.
+Deployment: adds strategy (RollingUpdate / Recreate) with maxSurge and maxUnavailable.
+Labels and selectors: matchLabels (equality) and matchExpressions (set). The Deployment's selector must match the template's labels.
+Daily commands: kubectl scale, kubectl set image, kubectl rollout status/history.
+Rollback: kubectl rollout undo reuses old ReplicaSets. revisionHistoryLimit controls how many are kept.
+KCNA keys from the chapter
+Deployment lives in apps/v1, same as ReplicaSet, StatefulSet, and DaemonSet.
+The Deployment's selector is immutable after creation. To change it, you must recreate the Deployment.
+Default strategy: RollingUpdate with maxSurge: 25%, maxUnavailable: 25%. Tune as needed.
+Without a readinessProbe, a rolling update can cause errors even though it's technically "rolling".
+Old ReplicaSets are kept per revisionHistoryLimit (default 10), with replicas: 0.
+kubectl rollout undo reverts to the previous revision; --to-revision=N to a specific one.
+What's next
+You now have a way to deploy and maintain a stateless app. But real apps have configuration: env vars, URLs to external services, config files, credentials. Hard-coding them in the image is a classic anti-pattern (every change needs a rebuild + new rollout).
+Chapter 5 (ConfigMaps and Secrets) fixes that: how to separate configuration from code, how to inject it into your Pods (via env or volumes), and the real difference between "a Secret" and "what most people would call secret" (spoiler: by default, Secrets aren't as secret as you think).

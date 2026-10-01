@@ -1,0 +1,26 @@
+Kubernetes para principiantes · Capítulo 8 de 21
+Scheduling: cómo Kubernetes decide dónde corre un Pod
+7 secciones
+En este capítulo
+01
+Introducción: el scheduler y su trabajo
+→
+02
+Las dos fases: filtering y scoring
+→
+03
+nodeSelector: el match más simple
+→
+04
+Taints y tolerations: nodos exclusivos
+→
+05
+Affinity y anti-affinity: reglas más finas
+→
+06
+PriorityClass y preemption
+→
+07
+Resumen
+→
+Empezar el capítulo →

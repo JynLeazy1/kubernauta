@@ -1,0 +1,108 @@
+Kubernetes para principiantes
+Capítulo 3 de 21 · Sección 2 de 8
+Anatomía del spec: lo que realmente declaras
+Ya sabes qué es un Pod conceptualmente. Ahora vamos a bajarlo al YAML: cuando alguien te pase un manifest, qué estás leyendo exactamente, qué es obligatorio y qué opcional, y por qué cada campo está donde está.
+La estructura mínima
+apiVersion: v1
+kind: Pod
+metadata:
+name: nginx
+spec:
+containers:
+- name: nginx
+image: nginx:1.27
+Ese YAML de 7 líneas es un Pod válido que Kubernetes acepta y levanta. Vale la pena detenerse un segundo: no hay replicas, no hay selector, no hay strategy. Esos viven en los objetos de nivel superior (Deployment, StatefulSet, etc.) — en el Pod a secas, tu responsabilidad se reduce a declarar qué contenedores corren y cómo.
+Fíjate que apiVersion: v1 no lleva grupo. Como vimos en el capítulo 2, Pod vive en el grupo core, que es el único sin prefijo en su apiVersion.
+La sección containers
+Es lo único verdaderamente obligatorio dentro del spec. Un array de uno o más contenedores, cada uno con su propio bloque:
+spec:
+containers:
+- name: web
+image: nginx:1.27
+ports:
+- containerPort: 80
+env:
+- name: ENV
+value: production
+resources:
+requests:
+cpu: 100m
+memory: 128Mi
+limits:
+cpu: 500m
+memory: 256Mi
+volumeMounts:
+- name: config
+mountPath: /etc/nginx/conf.d
+Los campos más usados:
+name: identificador dentro del Pod (únicamente local — no tiene que ser único en el cluster).
+image: la imagen OCI, con tag explícito. Nunca uses :latest en producción — queda para los demos.
+ports: puertos que el contenedor expone. Es informativo — Kubernetes no hace port-mapping como Docker.
+env: variables de entorno. Pueden ser literales (value) o referenciar Secrets/ConfigMaps con valueFrom.
+resources: requests (lo que el scheduler garantiza) y limits (el tope). Lo vemos a fondo en el capítulo 8.
+volumeMounts: montar un volumen del Pod en una ruta dentro del contenedor. Requiere que el volumen esté declarado en spec.volumes.
+Volúmenes: declaración vs montaje
+Hay dos partes separadas:
+spec:
+containers:
+- name: app
+image: myapp:1.0
+volumeMounts:
+- name: config # referencia al volumen
+mountPath: /etc/app
+volumes:
+- name: config # declaración del volumen
+configMap:
+name: app-config
+El spec.volumes declara qué volumen existe en el Pod. Cada contenedor elige qué volúmenes monta y dónde con volumeMounts. Esta separación permite compartir el mismo volumen entre contenedores del Pod — escribir en un volumen desde uno y leerlo desde otro es precisamente cómo funcionan la mayoría de los sidecars.
+Los tipos de volumen más comunes (configMap, secret, emptyDir, persistentVolumeClaim) los cubrimos en el capítulo 12.
+Campos del Pod (fuera de containers)
+Varias cosas importantes viven en spec pero fuera del array de containers:
+restartPolicy: qué hacer cuando un contenedor termina. Default Always. Los Jobs usan OnFailure o Never. Lo vemos en la sub-parte 5.
+nodeSelector, affinity, tolerations: pistas para el scheduler. Detalle en el capítulo 8.
+serviceAccountName: con qué identidad habla el Pod al apiserver. Default default del namespace. Detalle en el capítulo 14.
+securityContext: opciones de seguridad (runAsUser, runAsNonRoot, fsGroup…). Hay uno a nivel Pod y otro por contenedor.
+terminationGracePeriodSeconds: cuánto tiempo se le da a los contenedores para cerrar cuando se borra el Pod (default 30s).
+Un manifest completo para referencia
+apiVersion: v1
+kind: Pod
+metadata:
+name: web
+namespace: default
+labels:
+app: web
+tier: frontend
+spec:
+restartPolicy: Always
+serviceAccountName: default
+terminationGracePeriodSeconds: 30
+containers:
+- name: nginx
+image: nginx:1.27
+ports:
+- containerPort: 80
+env:
+- name: NGINX_PORT
+value: "80"
+resources:
+requests:
+cpu: 100m
+memory: 128Mi
+limits:
+cpu: 500m
+memory: 256Mi
+volumeMounts:
+- name: config
+mountPath: /etc/nginx/conf.d
+readOnly: true
+livenessProbe:
+httpGet:
+path: /healthz
+port: 80
+initialDelaySeconds: 10
+periodSeconds: 10
+volumes:
+- name: config
+configMap:
+name: nginx-config
+Este manifest ya es útil para la KCNA: si puedes explicar qué hace cada línea, vas bien. En la siguiente sub-parte abrimos el caso multi-contenedor y cuándo vale la pena usarlo.

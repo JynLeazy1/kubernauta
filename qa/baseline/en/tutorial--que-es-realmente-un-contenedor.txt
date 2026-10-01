@@ -1,0 +1,38 @@
+Tutorial · 9 parts
+What exactly is a Container?
+Building a Container from Scratch
+We dismantle the illusion layer by layer: namespaces, capabilities, chroot, pivot_root, OverlayFS, and cgroups. By the end, we build a working container using kernel primitives — no Docker required.
+linux
+namespaces
+cgroups
+overlayfs
+internals
+Contents
+01
+Introduction: What is a Container, Really?
+→
+02
+Linux Namespaces: All Eight Types in Depth
+→
+03
+Linux Capabilities: Breaking the root/non-root Binary
+→
+04
+chroot and pivot_root: Changing the Filesystem Root
+→
+05
+OverlayFS: The Layered Filesystem Behind Container Images
+→
+06
+cgroups: Real Resource Control (v1 vs v2)
+→
+07
+Building a Container from Scratch
+→
+08
+What the Container Runtime Does
+→
+09
+Series Summary
+→
+Start from the beginning →

@@ -1,0 +1,117 @@
+¿Qué es un Service?
+Parte 5 de 10
+EndpointSlices
+Cuando corrimos kubectl get ep nginx en la parte anterior, el cluster emitió un warning:
+kubectl get ep nginx
+# Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+# NAME ENDPOINTS AGE
+# nginx 192.168.1.4:80,192.168.1.5:80,192.168.1.6:80 49s
+El objeto Endpoints fue la forma original de rastrear los Pods detrás de un Service. Todavía funciona, pero fue reemplazado por EndpointSlice. Para entender por qué, hay que entender el problema que resuelve.
+El problema de escala del objeto Endpoints
+El objeto Endpoints original pone todos los endpoints de un Service en un solo objeto etcd. Con un Service que tiene 1000 réplicas — común en aplicaciones de gran escala — ese objeto ocupa decenas de kilobytes. Cada vez que un Pod se agrega, elimina o cambia de estado, el API server escribe el objeto entero de nuevo y lo distribuye a todos los nodos del cluster. Con miles de nodos, eso es una cantidad de tráfico enorme para un cambio de un solo Pod.
+EndpointSlice resuelve el problema de escala con una idea simple: en lugar de un objeto gigante, se crean múltiples slices de máximo 100 endpoints cada uno. Cuando un Pod cambia, solo el slice que lo contiene necesita actualizarse — y solo ese slice se distribuye por la red. El resto permanece sin cambios.
+Inspeccionar los EndpointSlices de un Service
+Cada EndpointSlice tiene una label kubernetes.io/service-name que lo vincula a su Service. Para verlos:
+kubectl get endpointslices
+# NAME ADDRESSTYPE PORTS ENDPOINTS AGE
+# kubernetes IPv4 6443 172.30.1.2 9d
+# nginx-bkx2b IPv4 80 192.168.1.5,192.168.1.6,192.168.1.4 47m
+Con tres réplicas entra todo en un solo slice. Para ver la estructura completa:
+kubectl get endpointslice nginx-bkx2b -o yaml
+# addressType: IPv4
+# apiVersion: discovery.k8s.io/v1
+# endpoints:
+# - addresses:
+# - 192.168.1.5
+# conditions:
+# ready: true
+# serving: true
+# terminating: false
+# nodeName: node01
+# targetRef:
+# kind: Pod
+# name: nginx-66686b6766-cp47m
+# namespace: default
+# uid: 5e229a31-f253-46d2-90d0-ab9a1eee47e5
+# - addresses:
+# - 192.168.1.6
+# conditions:
+# ready: true
+# serving: true
+# terminating: false
+# nodeName: node01
+# targetRef:
+# kind: Pod
+# name: nginx-66686b6766-tk7qv
+# namespace: default
+# uid: c2349683-3adf-48ce-a381-250088ffb13c
+# - addresses:
+# - 192.168.1.4
+# conditions:
+# ready: true
+# serving: true
+# terminating: false
+# nodeName: node01
+# targetRef:
+# kind: Pod
+# name: nginx-66686b6766-74zs8
+# namespace: default
+# uid: 8affde90-1f17-4103-88db-23c085fc1761
+# kind: EndpointSlice
+# metadata:
+# annotations:
+# endpoints.kubernetes.io/last-change-trigger-time: "2026-04-10T21:04:52Z"
+# generateName: nginx-
+# generation: 1
+# labels:
+# app: nginx
+# endpointslice.kubernetes.io/managed-by: endpointslice-controller.k8s.io
+# kubernetes.io/service-name: nginx
+# name: nginx-bkx2b
+# namespace: default
+# ownerReferences:
+# - apiVersion: v1
+# blockOwnerDeletion: true
+# controller: true
+# kind: Service
+# name: nginx
+# uid: 909643ef-167b-4f65-9b23-e2c6f645c290
+# ports:
+# - name: ""
+# port: 80
+# protocol: TCP
+El campo ownerReferences establece la relación de ownership: el Service es dueño del slice. Si se elimina el Service, el garbage collector de Kubernetes elimina el EndpointSlice automáticamente. El campo generateName: nginx- explica por qué el nombre del slice es nginx-bkx2b — es un prefijo con un sufijo aleatorio generado por el API server.
+Las tres condiciones de un endpoint
+Cada endpoint dentro de un slice tiene tres condiciones booleanas independientes. ready indica si el Pod pasó sus readiness probes y está listo para recibir tráfico normal. serving es similar a ready pero permanece en true durante el graceful shutdown del Pod — permite que las conexiones existentes terminen mientras el Pod se está apagando. terminating se pone en true cuando el Pod recibió una señal SIGTERM y está en proceso de cierre.
+kube-proxy solo agrega un endpoint a las reglas iptables si ready: true. Cuando un Pod empieza a terminar, terminating pasa a true y ready pasa a false — kube-proxy lo elimina de las chains KUBE-SVC-* inmediatamente. El Pod puede terminar de procesar las conexiones existentes gracias a conntrack, que ya tiene registradas esas conexiones, pero no recibirá tráfico nuevo.
+nodeName y el routing topológico
+Cada endpoint incluye el campo nodeName con el nodo donde corre el Pod. Kubernetes usa ese campo — junto con un campo adicional llamado hints — para implementar topology-aware routing: preferir endpoints en el mismo nodo o zona que el cliente antes de cruzar zonas de disponibilidad. Eso reduce latencia y costo de tráfico entre zonas en clusters multi-AZ.
+Para activarlo, se agrega la annotation service.kubernetes.io/topology-mode: Auto al Service. El controlador de EndpointSlices calcula entonces qué endpoints deben usarse en cada zona y lo anota en el campo hints.forZones de cada endpoint en el slice:
+# Con topology-mode: Auto, el slice incluye hints por zona
+# endpoints:
+# - addresses:
+# - 192.168.1.5
+# hints:
+# forZones:
+# - name: us-east-1a
+# nodeName: node01
+# zone: us-east-1a
+kube-proxy lee esos hints y filtra los endpoints al momento de construir las reglas: un nodo en us-east-1a solo incluirá en su KUBE-SVC-* los endpoints marcados con forZones: us-east-1a. El tráfico nunca sale de la zona salvo que no haya endpoints disponibles en ella. La implementación vive en pkg/proxy/topology.go, función CategorizeEndpoints().
+La feature se llamaba Topology Aware Hints hasta Kubernetes 1.26 y fue renombrada a Topology Aware Routing en 1.27. La annotation legacy service.kubernetes.io/topology-aware-hints sigue siendo soportada por compatibilidad.
+Cómo kube-proxy consume los EndpointSlices
+kube-proxy no consulta los EndpointSlices en polling — los observa via un Informer, el mismo mecanismo de watch que vimos en la parte 3. Cada vez que un EndpointSlice cambia — porque un Pod se agregó, eliminó, o cambió de condición — kube-proxy recibe el evento y sincroniza las reglas iptables del nodo. Para verificarlo, eliminamos un Pod y observamos las reglas inmediatamente:
+kubectl delete pod nginx-66686b6766-74zs8
+# pod "nginx-66686b6766-74zs8" deleted
+kubectl get pods -o wide
+# NAME READY IP NODE
+# nginx-66686b6766-cp47m 1/1 192.168.1.5 node01
+# nginx-66686b6766-tfww9 1/1 192.168.1.7 node01 ← nuevo Pod, IP nueva
+# nginx-66686b6766-tk7qv 1/1 192.168.1.6 node01
+sudo iptables -t nat -L KUBE-SVC-2CMXP7HKUVJN7L6M -n --line-numbers
+# Chain KUBE-SVC-2CMXP7HKUVJN7L6M (1 references)
+# num target prot opt source destination
+# 1 KUBE-MARK-MASQ 6 -- !192.168.0.0/16 10.99.20.216 tcp dpt:80
+# 2 KUBE-SEP-BD6TRYPAX6RNC2PD 0 -- 0.0.0.0/0 0.0.0.0/0 /* -> 192.168.1.5:80 */ statistic mode random probability 0.33333333349
+# 3 KUBE-SEP-XBSUSKRGZRORR4T6 0 -- 0.0.0.0/0 0.0.0.0/0 /* -> 192.168.1.6:80 */ statistic mode random probability 0.50000000000
+# 4 KUBE-SEP-4AGQXI4GR55VNW45 0 -- 0.0.0.0/0 0.0.0.0/0 /* -> 192.168.1.7:80 */
+El Pod de 192.168.1.4 desapareció. Su chain KUBE-SEP-LJUUEGC24UMYBEWU fue eliminada. El Deployment creó un Pod de reemplazo con IP 192.168.1.7 — una IP distinta, como siempre — y kube-proxy creó una nueva chain KUBE-SEP-4AGQXI4GR55VNW45 para él. Las probabilidades se mantienen en 1/3, 1/2 y 1, distribuyendo el tráfico equitativamente entre los tres Pods activos. Todo esto sin reiniciar nada, sin intervención manual — es el loop de control funcionando.

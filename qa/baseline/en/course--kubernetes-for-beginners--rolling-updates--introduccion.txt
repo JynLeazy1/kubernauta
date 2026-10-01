@@ -1,0 +1,29 @@
+Kubernetes for Beginners
+Chapter 11 of 21 · Section 1 of 7
+Introduction: Updating Without Downtime
+The downtime problem when updating
+Updating a production application without interrupting users requires a careful strategy. Kubernetes offers two built-in Deployment strategies.
+Recreate
+Terminates all old Pods before creating new ones. Simple but causes downtime. Useful when you can't run two versions simultaneously (incompatible DB schema, single port).
+strategy:
+type: Recreate
+RollingUpdate (default)
+Replaces Pods incrementally. During the transition, old and new version Pods coexist.
+strategy:
+type: RollingUpdate
+rollingUpdate:
+maxUnavailable: 1
+maxSurge: 1
+Essential commands
+kubectl set image deployment/my-app app=my-image:v2
+kubectl rollout status deployment/my-app
+kubectl rollout undo deployment/my-app
+kubectl rollout history deployment/my-app
+Readiness probes: the key to zero-downtime
+A readiness probe tells Kubernetes when a Pod is ready to receive traffic. Without it, traffic can reach a Pod that's still starting up. Always define readiness probes in production applications.
+readinessProbe:
+httpGet:
+path: /healthz
+port: 8080
+initialDelaySeconds: 5
+periodSeconds: 10

@@ -1,0 +1,33 @@
+What exactly is a Container?
+Part 9 of 9
+Series Summary
+You have reached the end. If you followed the complete series, you now have a precise mental model of what a container is — not a metaphor, but a mechanical description of the kernel primitives that make it possible.
+The complete map
+A container is the composition of five kernel mechanisms, each one solving a different question:
+Namespaces (clone(), unshare(), setns()) isolate what the process sees — PID, hostname, network, mounts, IPC, cgroups, UIDs and time. The eight types with their subtleties are in Linux Namespaces, including the difference between "being inside the namespace" and "seeing the right process in /proc", and the user namespace detail that underpins rootless containers: UID 0 inside maps to an unprivileged UID outside, but sudo podman is not rootless — only Podman run as a regular user is.
+Capabilities (capset(), /proc/<pid>/status) break the binary "you are root or you are not" privilege into 41 granular keys. Docker starts with 14 active; CAP_SYS_ADMIN, CAP_NET_ADMIN, CAP_SYS_MODULE and the other dangerous ones are excluded. Details in Linux Capabilities.
+pivot_root (pivot_root()) changes the filesystem root at the mount namespace level — unlike chroot, which only touches the process pointer. Combined with umount -l of the old root, the host's filesystem vanishes from the mount table. It is what makes OCI runtimes (runc, crun, youki) unescapable via the classic chroot exploit. See chroot and pivot_root.
+OverlayFS (mount -t overlay) stacks read-only layers (lowerdir) over a writable layer (upperdir), copying whole files on modification (file-level copy-up, not block-level). Enables dozens of containers to share a single base image. Details in OverlayFS.
+cgroups v2 (/sys/fs/cgroup/) enforce the actual limits: cpu.max, memory.max, pids.max; expose PSI (*.pressure) to detect saturation before OOM; and provide operational primitives (cgroup.freeze, cgroup.kill) that Docker and Kubernetes use underneath. Much more in cgroups.
+The runtime (runc) orchestrates all of these mechanisms in the correct order — clone, mount, pivot_root, drop capabilities, apply seccomp, execve — reading configuration from an OCI bundle. Docker and containerd are convenience layers on top.
+What the kernel does not know
+The kernel has no concept of a "container." It only has processes, namespaces, cgroups, and mounts. The word "container" is a user-space convention — a way of talking about a process configured in a particular way.
+This distinction matters when something fails: container problems are Linux problems. The debugging tools are the same: strace, lsns, nsenter, ip, ss, cat /proc/....
+Evidence gathered
+The series is not only theory — along the way we ran experiments that confirm each thesis:
+The chroot escape works; the pivot_root escape does not. We compiled escape.c with gcc -static, ran it inside a chroot Alpine and landed on Ubuntu (three consecutive cat /etc/os-release reads confirmed the Alpine → Ubuntu → Alpine transitions). We then repeated inside a mount namespace with pivot_root + umount -l /.old_root: the same binary stayed trapped in Alpine. The host's mount table no longer existed in that namespace, so there was no "outside" to reach.
+cgroup.freeze pauses processes atomically. With a container writing a counter every second, echo 1 > cgroup.freeze produced a 46-second gap in real time between ticks 104 and 105, even though docker ps kept reporting "Up" — Docker and the kernel have decoupled views of the cgroup state when you manipulate the file directly.
+cgroups limits react live. stress-ng --vm 1 --vm-bytes 200M against --memory=128m triggered 374 OOM kills in 30 seconds, visible growing in memory.events. stress-ng --cpu 4 against --cpus=0.25 hit 98% throttling (nr_throttled/nr_periods = 301/307) with ~1.5s of accumulated wait per real second.
+"Rootless" with sudo is not rootless. The test-podman-userns.sh script ran Podman in three modes (direct root, regular user without sudo, sudoer with sudo). The uid_map of cases 1 and 3 was identical: 0 0 4294967295 (identity mapping). Only case 2 showed a real mapping (0 1001 1 plus the /etc/subuid subrange). Being a sudoer changes nothing — only the effective UID that invokes the runtime matters.
+What we did not cover
+seccomp — kernel-level syscall filtering (Docker's default profile blocks ~40 syscalls).
+AppArmor / SELinux — MAC (Mandatory Access Control) as an additional layer on top of capabilities.
+OCI Image Spec — how images are packaged, signed, and distributed (JSON manifest, media types, registries, content addressability). We covered the filesystem images produce in OverlayFS, but not the distribution spec.
+Next steps: Pods
+In the next series we will look at how Kubernetes groups multiple containers into a Pod. The key question: if each container has its own namespaces, how do they share the network and filesystem inside a Pod?
+The answer involves the pause container (also called the "infra container"), a minimal process that creates the Pod's shared namespaces and keeps them alive even when application containers restart. When kubelet creates a Pod, the first container to start is always pause — the rest join its namespaces via setns(). You already saw the structure in action in the kubepods.slice hierarchy: every Pod has ≥ 2 scopes in its cgroup — the first one is the pause container.
+# You can see it on any Kubernetes node:
+crictl ps | grep pause
+# Or with Docker in single-node mode:
+docker ps | grep pause
+If you understood this series, understanding Pods will feel natural — it is exactly the same mechanism, with namespaces selectively shared among processes.

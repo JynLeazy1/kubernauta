@@ -1,0 +1,67 @@
+Kubernetes for Beginners
+Chapter 4 of 21 · Section 5 of 7
+Scaling and Updating: The Basic Commands
+Time for the practical part: two things you'll do every day with Deployments — scale and update — and the exact commands to do them. The important part isn't just the syntax: it's understanding what happens underneath each time you run them.
+Scale: up or down
+Three ways to change a Deployment's replicas:
+1. kubectl scale
+kubectl scale deployment/web --replicas=10
+Fastest, ideal for an emergency or experiment. It's imperative: changes the cluster but doesn't touch your local YAML. Next time you apply your manifest from git, the count goes back to the file's value.
+2. kubectl edit
+kubectl edit deployment/web
+Opens the live YAML in your editor. You change replicas: 3 to replicas: 10, save, and kubectl sends the patch. Also imperative.
+3. Edit the YAML and apply
+vim deployment.yaml # change replicas: 10
+kubectl apply -f deployment.yaml
+The correct one for production. Your git reflects desired state. If you use GitOps (Argo CD, Flux), this is the only valid way.
+What happens when you scale
+Going from 3 to 10:
+kubectl sends a PATCH to the Deployment with the new replicas.
+The Deployment controller sees the change and updates the replicas on its current ReplicaSet.
+The ReplicaSet controller sees it has 3 Pods when it should have 10. Creates 7 new ones.
+The scheduler assigns a node to each new Pod, kubelet starts them.
+Going from 10 to 3 is similar but reversed: the RS marks 7 Pods for deletion (the algorithm prefers Pods not Ready, then newest first), kubelet runs the shutdown respecting terminationGracePeriodSeconds.
+Update: change the image
+Three ways here too:
+1. kubectl set image
+kubectl set image deployment/web nginx=nginx:1.28
+The most common imperative way. Syntax: container-name=new-image. If your Deployment has several containers, you can change them all in one command.
+2. kubectl edit
+Same as for scaling, but you change the template's image field.
+3. Update the YAML and apply
+The right one for production and GitOps. Your repo always reflects what version is running.
+Watch the rollout live
+When you trigger a template change (image, env, resources), the Deployment starts a rollout. To follow it:
+kubectl rollout status deployment/web
+Blocks until it finishes, with messages like "Waiting for deployment 'web' rollout to finish: 2 of 3 updated replicas are available...". Exits 0 on success, non-zero on timeout or failure.
+Other helpful ones for debugging:
+kubectl get rs -l app=web # see the new RS growing and the old shrinking
+kubectl get pods -l app=web -w # each Pod being created / dying in real time
+kubectl describe deployment web # state, conditions, recent history
+kubectl rollout history deployment/web # list of revisions
+The revision history
+kubectl rollout history deployment/web
+REVISION CHANGE-CAUSE
+1 <none>
+2 kubectl set image deployment/web nginx=nginx:1.28
+3 kubectl set image deployment/web nginx=nginx:1.29
+Every template change increments the revision. The CHANGE-CAUSE column comes from --record (deprecated) or the kubernetes.io/change-cause annotation you set yourself.
+To inspect a specific revision:
+kubectl rollout history deployment/web --revision=2
+You'll use this in the next sub-part when we cover rollback. It's the base.
+Pause and resume a rollout
+If you need to make several template changes and trigger them as a single rollout (instead of one per edit):
+kubectl rollout pause deployment/web
+kubectl set image deployment/web nginx=nginx:1.29
+kubectl set env deployment/web FEATURE_FLAG=on
+# Accumulate changes without rotating Pods.
+kubectl rollout resume deployment/web
+# Now it rotates.
+Useful to avoid two back-to-back rollouts.
+For the KCNA
+Scale: kubectl scale deployment/X --replicas=N (imperative) or change the YAML and apply (declarative).
+Update image: kubectl set image deployment/X container=image:tag.
+Watch rollout: kubectl rollout status, kubectl get rs, kubectl get pods -w.
+History: kubectl rollout history deployment/X.
+Pause/resume: kubectl rollout pause/resume to batch changes.
+In the next sub-part we cover what to do when a rollout goes wrong: how to revert to a previous version, what happens to the Pods, and why old ReplicaSets stay alive as a safety net.

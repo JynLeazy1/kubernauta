@@ -1,0 +1,26 @@
+What exactly is a Container?
+Part 1 of 9
+Introduction: What is a Container, Really?
+Ask someone what a container is, and they'll probably say something like "a lightweight VM" or "an isolated process." Neither answer is entirely correct.
+A container is an ordinary Linux process to which the kernel applies a set of isolation and control mechanisms. There is no hypervisor, no separate kernel, no virtualized hardware. The container shares the host kernel — what changes is how that process perceives the system around it.
+This series dismantles that illusion piece by piece, using real commands you can run on any modern Linux system.
+What we'll cover
+Linux Namespaces — the illusion of being alone: PID, network, filesystem, hostname, and more.
+Linux Capabilities — why "root inside a container" is not the same as root on the host.
+chroot and pivot_root — how to change the filesystem root and why pivot_root is safer than chroot.
+OverlayFS — the layered filesystem that makes Docker images possible.
+cgroups v1 and v2 — real control over CPU, memory, and I/O.
+Building a container from scratch — assembling everything with unshare, pivot_root, and a real rootfs.
+What the container runtime does — exactly what runc does when you run docker run.
+Series summary — the complete map and next steps.
+Prerequisites
+To follow the examples you need:
+A modern Linux system with kernel ≥ 5.10 (Ubuntu 22.04+, Debian 12+, Fedora 37+)
+docker installed (for the comparative examples)
+Access to sudo
+The tools: util-linux (unshare, lsns), iproute2, libcap2-bin (capsh)
+# Ubuntu/Debian
+sudo apt install util-linux iproute2 libcap2-bin
+The central question
+By the end of this series you should be able to answer: can I create a "container" using kernel commands without Docker?
+The answer is yes. And doing it will teach you more about containers than years of running docker run.

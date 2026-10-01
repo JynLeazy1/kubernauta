@@ -1,0 +1,20 @@
+Kubernetes para principiantes · Capítulo 21 de 21
+Cómo prepararte para el examen KCNA
+5 secciones
+En este capítulo
+01
+Introducción: qué es la KCNA y a quién va dirigida
+→
+02
+Formato, tiempo y peso por dominio
+→
+03
+Recursos oficiales y repaso por dominio
+→
+04
+Simulacros y estrategia el día del examen
+→
+05
+Después de la KCNA: CKAD, CKA y el camino largo
+→
+Empezar el capítulo →

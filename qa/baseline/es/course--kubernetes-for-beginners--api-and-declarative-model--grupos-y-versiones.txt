@@ -1,0 +1,78 @@
+Kubernetes para principiantes
+Capítulo 2 de 21 · Sección 3 de 7
+Grupos de API, versiones y anatomía de un objeto
+Abre cualquier YAML de Kubernetes y lo primero que ves son dos líneas:
+apiVersion: apps/v1
+kind: Deployment
+Esas dos líneas son la "dirección" del objeto dentro de la API: dicen a qué grupo y versión pertenece, y qué tipo es. Entenderlas elimina una enorme cantidad de confusión — la de no saber por qué a veces es apps/v1, a veces v1 a secas, y a veces algo como networking.k8s.io/v1.
+Grupos de API
+La API de Kubernetes está organizada en grupos. Cada grupo agrupa tipos relacionados. Esto permite evolucionar partes de la API de forma independiente sin romper las demás.
+Hay dos grandes categorías:
+El grupo core (también llamado legacy) — contiene los tipos más antiguos y fundamentales: Pod, Service, Namespace, ConfigMap, Secret, Node, PersistentVolume, etc. Su apiVersion no lleva prefijo: solo v1.
+Grupos con nombre — todo lo demás. Cada grupo tiene un nombre como apps, batch, networking.k8s.io, rbac.authorization.k8s.io. Su apiVersion se escribe grupo/versión, por ejemplo apps/v1.
+Algunos ejemplos cotidianos:
+apiVersion: v1 # core
+kind: Pod
+apiVersion: apps/v1 # grupo apps
+kind: Deployment
+apiVersion: batch/v1 # grupo batch
+kind: Job
+apiVersion: networking.k8s.io/v1 # grupo networking.k8s.io
+kind: NetworkPolicy
+apiVersion: rbac.authorization.k8s.io/v1 # grupo RBAC
+kind: Role
+Para ver todos los grupos disponibles en tu cluster:
+kubectl api-versions
+Y para ver todos los recursos (con sus grupos):
+kubectl api-resources
+La salida de api-resources incluye un nombre corto (po para Pods, deploy para Deployments), si el recurso es namespaced, y a qué grupo pertenece. Es una de las salidas más útiles para orientarte.
+Versiones: alpha, beta, stable
+Dentro de cada grupo, un tipo puede existir en varias versiones a la vez. El sufijo de la versión dice su nivel de madurez:
+v1 — stable / GA. Compatible hacia adelante por toda la vida de la major version. Es la versión que deberías usar en producción.
+v1beta1, v1beta2 — beta. Razonablemente estable, bien probada, pero la API puede cambiar con deprecation. Habilitada por defecto.
+v1alpha1 — alpha. Experimental. La API puede cambiar sin previo aviso, los bugs son posibles. Suele estar deshabilitada por defecto y hay que activarla con feature flags.
+La regla práctica: si un tipo tiene una versión estable (v1), úsala. Las versiones alpha solo tienen sentido cuando necesitas una feature muy nueva o estás construyendo algo experimental.
+Cómo se promueve una API
+La vida típica de una API en Kubernetes:
+Alpha (v1alpha1, v1alpha2…): feature flag-gated, puede cambiar o desaparecer.
+Beta (v1beta1, v1beta2…): habilitada por defecto, compatible dentro de la beta pero puede cambiar entre betas.
+Stable (v1): compromiso de compatibilidad a largo plazo.
+Cuando una API se promueve, las versiones viejas quedan deprecated y eventualmente se eliminan. Por eso a veces ves warnings como "apiVersion extensions/v1beta1 is deprecated" — el tipo aún funciona, pero ya hay una versión estable que debes usar en su lugar.
+Atención
+Los upgrades de Kubernetes pueden eliminar APIs antiguas. Si tu YAML usa apiVersion: extensions/v1beta1 para un Deployment (removida en 1.16), el upgrade va a romperlo. Antes de actualizar un cluster, revisa con herramientas como kubectl deprecations o pluto para encontrar APIs deprecadas.
+Anatomía completa de un objeto
+Ya vimos spec, status y metadata. Juntos, con apiVersion y kind, forman la estructura completa:
+apiVersion: apps/v1 # grupo y versión
+kind: Deployment # tipo
+metadata: # identidad y organización
+name: nginx
+namespace: default
+labels:
+app: nginx
+annotations:
+deployment.kubernetes.io/revision: "1"
+spec: # estado deseado
+replicas: 3
+selector:
+matchLabels:
+app: nginx
+template:
+metadata:
+labels:
+app: nginx
+spec:
+containers:
+- name: nginx
+image: nginx:1.25
+status: # estado observado (no lo escribas)
+replicas: 3
+readyReplicas: 3
+availableReplicas: 3
+Esos cinco campos top-level — apiVersion, kind, metadata, spec, status — existen en prácticamente todo objeto de Kubernetes. Si ves un YAML y no encuentras alguno, sospecha antes de aplicar.
+Descubriendo la API del cluster
+Un dato útil: el propio apiserver expone su documentación. Puedes pedirle la descripción completa de cualquier tipo:
+kubectl explain deployment
+kubectl explain deployment.spec
+kubectl explain deployment.spec.template.spec.containers --recursive
+Eso devuelve los campos válidos, sus tipos, y una descripción breve. Es la fuente autoritativa — más fiel a tu cluster que cualquier tutorial, porque refleja exactamente la versión que tienes instalada.
+En la sub-parte siguiente formalizamos los controllers: qué son, cómo se construyen, y por qué son el motor del modelo declarativo.

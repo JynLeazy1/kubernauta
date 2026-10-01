@@ -1,0 +1,15 @@
+¿Qué es un Service?
+Parte 1 de 10
+Introducción: el problema que un Service resuelve
+En el tutorial anterior vimos que un Pod tiene una IP asignada por el plugin CNI al namespace de red del pause container. Esa IP es real — existe en el kernel, en el veth pair, en las rutas del nodo. Pero tiene un problema fundamental: es efímera.
+Cuando un Pod muere y se recrea — por un crash, por un rollout, por que el nodo se cayó — el nuevo Pod obtiene una IP distinta. El plugin CNI asigna lo que tenga disponible en el rango del nodo. No hay garantía de continuidad. Si otro Pod tenía hardcodeada esa IP, dejó de funcionar.
+La solución obvia sería un registro DNS que apunte al Pod y se actualice solo. Kubernetes tiene eso. Pero DNS tiene TTL, y durante el tiempo que tarda en propagarse, las conexiones fallan. Para servicios que escalan horizontalmente — diez réplicas del mismo Pod — el problema se amplifica: ¿a cuál de las diez IPs llamas? ¿quién hace el load balancing?
+Un Service resuelve todo eso con una sola abstracción: una IP virtual estable que no cambia aunque los Pods detrás de ella cambien constantemente.
+Pero a diferencia de la IP de un Pod, la IP de un Service — la ClusterIP — no está asignada a ninguna interfaz de red. No existe en ip addr. No puedes hacerle ping. No hay ningún proceso escuchando en esa IP. Sin embargo, si abres una conexión TCP a ella, funciona.
+Eso no es magia. Es el kernel interceptando el tráfico antes de que salga del host y redirigiéndolo a un Pod real. La herramienta que crea esa ilusión es kube-proxy, y el mecanismo concreto son reglas iptables o entradas IPVS en el kernel.
+En este tutorial vamos a desarmarlo todo. Vamos a ver exactamente qué reglas crea kube-proxy, cómo el kernel las aplica paquete a paquete, cómo los EndpointSlices mantienen actualizada la lista de Pods detrás de cada Service, y cómo fluye un paquete desde que un Pod llama a http://mi-servicio hasta que llega a su destino.
+Al final vamos a replicar lo que hace kube-proxy a mano — crear las reglas iptables nosotros mismos y demostrar que el Service funciona sin que Kubernetes toque nada.
+Herramientas que usamos en este tutorial
+iptables es la herramienta central — la usamos para inspeccionar las chains que crea kube-proxy y para escribir las reglas manuales de la demo final. conntrack permite ver las entradas de connection tracking del kernel; en Ubuntu/Debian viene en el paquete conntrack, que no está instalado por defecto. ip (ip addr, ip route) para inspeccionar interfaces y rutas de red. curl para hacer requests HTTP y verificar que el tráfico llega. nslookup y tcpdump en la sección de CoreDNS para observar el comportamiento del resolver y el costo oculto del DNS. ipvsadm aparece en la sección de modos de kube-proxy para ilustrar el modo IPVS, aunque el cluster de ejemplo corre en modo iptables.
+Si estás siguiendo el tutorial en un nodo Ubuntu/Debian, el único paquete que probablemente necesites instalar antes de empezar es:
+apt-get install -y conntrack dnsutils tcpdump

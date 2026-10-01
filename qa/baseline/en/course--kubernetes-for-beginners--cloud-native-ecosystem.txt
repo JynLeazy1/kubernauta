@@ -1,0 +1,23 @@
+Kubernetes for Beginners · Chapter 16 of 21
+The Cloud Native Ecosystem: CNCF, Projects, and Principles
+6 sections
+In this chapter
+01
+Introduction: What Is and Isn't Cloud Native
+→
+02
+The CNCF: Mission and Levels (Sandbox, Incubating, Graduated)
+→
+03
+The Landscape: Categories You Must Know for the KCNA
+→
+04
+Cloud Native Principles: Containers, Microservices, Declarative, Immutable, API-Driven
+→
+05
+12-Factor Apps and Their Relation to Cloud Native
+→
+06
+Summary
+→
+Start the chapter →

@@ -1,0 +1,165 @@
+What exactly is a Container?
+Part 3 of 9
+Linux Capabilities: Breaking the root/non-root Binary
+Historically, Unix had a binary privilege model: either you are root (everything allowed) or you are not. This model is too coarse-grained — a web server only needs to listen on port 80, not format disks or load kernel modules.
+Linux broke this in version 2.2 with capabilities: a list of ~40 discrete privileges that can be granted or revoked independently. Instead of giving a process all the keys to the kingdom, you give it only the ones it needs.
+Relevant capabilities
+CAP_NET_BIND_SERVICE # Bind to ports < 1024
+CAP_NET_RAW # Raw sockets (ping, tcpdump)
+CAP_SYS_ADMIN # The "catch-all": mount, setns, ptrace... (avoid)
+CAP_CHOWN # Change file ownership
+CAP_KILL # Send signals to other users' processes
+CAP_SETUID / SETGID # Change the process UID/GID
+CAP_SYS_PTRACE # Debug other processes
+CAP_NET_ADMIN # Configure network interfaces
+CAP_SYS_MODULE # Load kernel modules
+Docker's default capabilities
+Docker starts containers with a reduced, opinionated subset. To inspect it:
+docker run --rm -it alpine sh -c "apk add -q libcap && capsh --print"
+Current: cap_chown,cap_dac_override,cap_fowner,cap_fsetid,cap_kill,
+cap_setgid,cap_setuid,cap_setpcap,cap_net_bind_service,
+cap_net_raw,cap_sys_chroot,cap_mknod,cap_audit_write,
+cap_setfcap=ep
+Bounding set =cap_chown,cap_dac_override,cap_fowner,cap_fsetid,cap_kill,
+cap_setgid,cap_setuid,cap_setpcap,cap_net_bind_service,
+cap_net_raw,cap_sys_chroot,cap_mknod,cap_audit_write,cap_setfcap
+Ambient set =
+Current IAB: !cap_dac_read_search,!cap_linux_immutable,!cap_net_broadcast,
+!cap_net_admin,!cap_ipc_lock,!cap_ipc_owner,!cap_sys_module,
+!cap_sys_rawio,!cap_sys_ptrace,!cap_sys_pacct,!cap_sys_admin,
+!cap_sys_boot,!cap_sys_nice,!cap_sys_resource,!cap_sys_time,
+!cap_sys_tty_config,!cap_lease,!cap_audit_control,
+!cap_mac_override,!cap_mac_admin,!cap_syslog,!cap_wake_alarm,
+!cap_block_suspend,!cap_audit_read,!cap_perfmon,!cap_bpf,
+!cap_checkpoint_restore
+Securebits: 00/0x0/1'b0 (no-new-privs=0)
+secure-noroot: no (unlocked)
+secure-no-suid-fixup: no (unlocked)
+secure-keep-caps: no (unlocked)
+secure-no-ambient-raise: no (unlocked)
+uid=0(root) euid=0(root)
+gid=0(root)
+Guessed mode: HYBRID (4)
+Two fields worth a closer look:
+Bounding set — the hard ceiling. No capability outside this set can reappear, not even through a setuid binary. Docker makes it equal to Current, so "gaining" new capabilities from inside the container is impossible.
+Current IAB — capabilities with a ! prefix are explicitly denied in Inheritable/Ambient/Bounding. That is where you see everything Docker drops by default: cap_sys_admin, cap_sys_ptrace, cap_net_admin, cap_sys_module, cap_bpf, cap_checkpoint_restore, etc.
+The dangerous ones are excluded: CAP_SYS_ADMIN, CAP_SYS_PTRACE, CAP_NET_ADMIN, CAP_SYS_MODULE. This means that even as UID 0 inside the container, you cannot mount arbitrary filesystems, load kernel modules, or debug processes in other namespaces.
+Adding and dropping capabilities
+# Add: allows ping without being root
+docker run --rm --cap-add NET_RAW alpine ping -c1 8.8.8.8
+# PING 8.8.8.8 (8.8.8.8): 56 data bytes
+# 64 bytes from 8.8.8.8: seq=0 ttl=115 time=12.470 ms
+# Drop CAP_CHOWN from nginx: the container DOES NOT start.
+# nginx needs chown() at startup to prepare its cache directories.
+docker run --rm --cap-drop CHOWN nginx:alpine
+# 2026/04/21 07:43:35 [emerg] 1#1: chown("/var/cache/nginx/client_temp", 101)
+# failed (1: Operation not permitted)
+# nginx: [emerg] chown("/var/cache/nginx/client_temp", 101) failed (1: ...)
+#
+# Lesson: "dropping capabilities" is not free. You must know which
+# privileged syscalls the binary uses before stripping privileges.
+# Example that DOES work: demonstrate the block without killing the container.
+# Create a file and check that chown fails with and without CAP_CHOWN.
+docker run --rm alpine sh -c "touch /tmp/f && chown 1000 /tmp/f && echo OK"
+# OK ← with default CHOWN, it works
+docker run --rm --cap-drop CHOWN alpine sh -c "touch /tmp/f && chown 1000 /tmp/f"
+# chown: /tmp/f: Operation not permitted ← without CHOWN, the kernel blocks it
+# Minimal mode: no capabilities at all — useful as a security baseline.
+# sh starts because it does not need any privilege.
+docker run --rm --cap-drop ALL alpine sh
+# / (the shell starts normally)
+The five capability sets
+Each process maintains five independent sets:
+Permitted: the capabilities the process can activate.
+Effective: the capabilities that are currently active (the kernel checks these on every syscall).
+Inheritable: capabilities that child processes can inherit when executing an execve().
+Bounding: the maximum ceiling — no capability outside this set can enter Permitted.
+Ambient: inherited by unprivileged child processes (Linux 4.3+).
+The set that matters for real-time access control is Effective. You can inspect it directly in procfs:
+NGINX_PID=$(pgrep --oldest nginx)
+cat /proc/${NGINX_PID}/status | grep Cap
+CapInh: 0000000000000000
+CapPrm: 00000000a80425fb
+CapEff: 00000000a80425fb
+CapBnd: 00000000a80425fb
+CapAmb: 0000000000000000
+# Decode the hex value to human-readable names
+capsh --decode=00000000a80425fb
+0x00000000a80425fb=cap_chown,cap_dac_override,cap_fowner,cap_fsetid,
+cap_kill,cap_setgid,cap_setuid,cap_setpcap,cap_net_bind_service,
+cap_net_raw,cap_sys_chroot,cap_mknod,cap_audit_write,cap_setfcap
+How to list capabilities on Linux
+There are four common tools depending on what you need to inspect — all from the libcap2-bin (Ubuntu/Debian) or libcap (Alpine) package:
+1. The current process's capabilities (direct kernel read):
+capsh --print
+# Current: =ep ← unrestricted root; "=ep" means
+# "every supported cap, in e+p"
+# Bounding set =cap_chown,cap_dac_override,...,cap_checkpoint_restore
+# Ambient set =
+# Current IAB: ← empty for unrestricted root
+# Securebits: 00/0x0/1'b0 (no-new-privs=0)
+# secure-noroot: no (unlocked)
+# secure-no-suid-fixup: no (unlocked)
+# secure-keep-caps: no (unlocked)
+# secure-no-ambient-raise: no (unlocked)
+# uid=0(root) euid=0(root)
+# gid=0(root)
+# Guessed mode: HYBRID (4)
+The =ep notation in Current is a compact form for "every supported capability, marked as both Effective and Permitted". When the process holds an explicit subset (such as a Docker container), Current prints as a list: cap_chown,cap_kill,...=ep.
+2. Capabilities of a process by PID (human-friendly view of /proc/<pid>/status):
+getpcaps 1
+# 1: =ep ← PID 1 (init) holds them all on a non-hardened host
+getpcaps $(pgrep nginx)
+# 75563: cap_chown,cap_dac_override,cap_fowner,...,cap_setfcap=ep
+# 75597: = ← zero capabilities!
+That second PID with an empty = reveals nginx's classic privilege-separation pattern: the master starts with the caps it needs (cap_net_bind_service to bind port 80), forks the workers, and the workers drop every cap before they start serving traffic. If an attacker compromises a worker, there are no capabilities to escalate — and the worker cannot open new privileged sockets.
+3. Capabilities attached to a binary on disk (file capabilities — extended filesystem attributes):
+getcap -r /usr/bin 2>/dev/null
+# /usr/bin/mtr-packet cap_net_raw=ep
+# /usr/bin/ping cap_net_raw=ep
+#
+# That is why ping works without sudo: it is not setuid root, it has
+# cap_net_raw stuck to the executable. setcap/getcap manage those attrs.
+On systems with rootless containers configured, you'll also see newuidmap and newgidmap with cap_setuid/cap_setgid. The exact list depends on which tools your distro installed.
+4. The full list of capabilities the kernel supports:
+# --supports checks whether a specific cap is implemented in this kernel
+# (returns an exit code; useful for scripts that need to know whether they
+# can rely on cap_bpf, cap_perfmon, cap_checkpoint_restore, etc.)
+capsh --supports=cap_bpf && echo "supported"
+# supported
+# To enumerate them all, read the kernel header:
+grep -E '^#define CAP_' /usr/include/linux/capability.h
+# #define CAP_CHOWN 0
+# #define CAP_DAC_OVERRIDE 1
+# ...
+# #define CAP_CHECKPOINT_RESTORE 40 ← the newest one (kernel 5.9+)
+# #define CAP_LAST_CAP CAP_CHECKPOINT_RESTORE
+# #define CAP_TO_INDEX(x) ((x) >> 5)
+# #define CAP_TO_MASK(x) (1U << ((x) & 31))
+The header carries 41 numbered capabilities (CHOWN = 0 through CHECKPOINT_RESTORE = 40) plus three helper macros the kernel uses internally:
+CAP_LAST_CAP is an alias for the highest-defined cap. It lets kernel and userspace code iterate from 0 to CAP_LAST_CAP without having to update the upper bound every time a new cap is added.
+CAP_TO_INDEX(x) computes which __u32 in the bitset holds the bit for cap x. Each cap's state (Effective, Permitted, Bounding…) lives in a bitset spread across several 32-bit integers — the macro shifts right by 5 (integer divide by 32) to get the right one.
+CAP_TO_MASK(x) generates the bitmask within that __u32: it computes (1U << (x % 32)). Combined with CAP_TO_INDEX, it lets you read/write a specific cap's bit with two instructions.
+Which to use: capsh --print for inspecting your own shell. getpcaps <pid> is what you want for containers (it saves you reading and decoding the hex from /proc/<pid>/status). getcap is the only way to discover capabilities attached to disk binaries — useful for auditing: if you spot cap_sys_admin=ep on a binary you didn't expect, that's a red flag.
+Why root inside a container is still dangerous
+Docker does not use the user namespace by default. That means the container's UID 0 maps directly to UID 0 on the host. If a process escapes the container (through a vulnerability in the runtime or kernel), it lands on the host as real root.
+Capabilities partially mitigate this — without CAP_SYS_ADMIN there are fewer escape vectors — but full mitigation requires enabling the user namespace (rootless mode) or using a runtime with stronger isolation such as gVisor or kata-containers.
+A common misconception is that --user 1000:1000 turns the container "rootless". It does not: that flag only changes the effective UID of the process inside the container, without creating any user namespace. UID 1000 inside is still UID 1000 on the host.
+# --user changes the process UID, but does NOT create a user namespace
+docker run --rm --user 1000:1000 alpine id
+# uid=1000 gid=1000 groups=1000
+# The uid_map is identity: every container UID == same host UID
+docker run --rm alpine cat /proc/self/uid_map
+# 0 0 4294967295 ← no privilege isolation
+Real rootless means the kernel maps container UIDs to an unprivileged subrange on the host. Three paths give you that:
+Docker rootless — installed via dockerd-rootless-setuptool.sh. The daemon runs as an unprivileged user.
+Docker with --userns-remap=default — the daemon is still root, but containers run with mapped UIDs.
+Podman run as a regular user (no sudo). With sudo, it is not rootless: the mapping reverts to identity.
+# Podman as a regular user: REAL rootless
+podman run --rm alpine cat /proc/self/uid_map
+# 0 1001 1 ← container UID 0 = host UID 1001
+# 1 231072 65536 ← subrange allocated in /etc/subuid
+# Podman with sudo: NOT rootless, identity mapping (same as Docker as root)
+sudo podman run --rm alpine cat /proc/self/uid_map
+# 0 0 4294967295
+The criterion that matters is not whether the user is a sudoer, but the effective UID that invokes the runtime. You can reproduce the three cases (direct root, regular user, sudoer with sudo) empirically with the test-podman-userns.sh script. The detailed uid_map format and the role of /etc/subuid are covered in the user namespace section of the previous chapter.

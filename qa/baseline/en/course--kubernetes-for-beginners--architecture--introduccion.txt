@@ -1,0 +1,23 @@
+Kubernetes for Beginners
+Chapter 1 of 21 · Section 1 of 7
+Introduction: What a Cluster Really Is
+Yeah, yet another Kubernetes course (the kind that looks tediously long and packed with text). This one is too — the challenge is making it not feel that way. We stick to the basics, explain them as simply as possible, and lean on humor, examples, and analogies. It's not the official documentation; it's a guide to actually understand what each piece does without losing the thread. So let's set sail on this journey — fun fact: kubernetes comes from the Greek κυβερνήτης (helmsman, pilot — also the root of the word "govern"); on this site we adapted it as Kubernauta, roughly "the one who sails Kubernetes".
+If you open the K8s docs, the first thing you'll see is a diagram of how the cluster is structured. If you'd never heard of Kubernetes — how did you even land here? — or only know it by name as a container orchestrator, that diagram probably won't say much: there are kube-proxy, kubelet, kube-apiserver and other strange names, with no hint of what they do or what they're for. This first chapter is exactly what we'll unpack.
+What is a cluster?
+A cluster is, simply, a set of machines — physical or virtual — brought together for a common goal. We'll call each one a node. In Kubernetes, those nodes run Linux, and the group's job is to manage the applications you deploy on it. To pull that off, the nodes are basically split into two types: control plane nodes, which decide what happens, and worker nodes, which run your applications.
+Components of a Kubernetes cluster. Source: kubernetes.io — Cluster Components.
+The curious thing is that the cluster looks like a single entity. If you've never seen it before, you might think it's like any other application you install with apt install. In reality it's a set of components, and each one needs its own installation to work.
+The components of the cluster
+As we mentioned before, the cluster has two types of nodes: control plane nodes and worker nodes. Each type is built from its own components — small processes that, together, keep the cluster running.
+In the control plane you'll find kube-apiserver, etcd, kube-scheduler, and kube-controller-manager. If the cluster lives on a cloud (AWS, GCP, Azure), a fifth guest joins in: the cloud-controller-manager, which talks to the provider's API to request things like load balancers and volumes.
+On the worker side the list is shorter: kubelet, a container runtime, and kube-proxy.
+Deep dive
+The role of kube-proxy, the rules it programs in the kernel, and the full path of a packet are covered in depth in the tutorial What is a Service?.
+What we'll cover in this chapter
+The control plane in depth: kube-apiserver, etcd, kube-scheduler, and kube-controller-manager — what each one does and why they're separate.
+Worker nodes in depth: kubelet, the container runtime, and kube-proxy — how a Linux machine becomes a node in the cluster.
+The full flow: what exactly happens between typing kubectl apply and your container starting.
+etcd: the database that stores all the state, and why it is the heart (and the Achilles' heel) of the cluster.
+High availability: why the control plane cannot be a single machine if you want to sleep at night.
+By the end, when you see a Kubernetes architecture diagram, you won't see a drawing: you'll see components, HTTP connections, and a reconciliation loop at work. And that, in large part, is what the KCNA exam is about: knowing what each piece does and why it's there.
+If you want the official reference handy as we go, keep this one open: Cluster Components — kubernetes.io.

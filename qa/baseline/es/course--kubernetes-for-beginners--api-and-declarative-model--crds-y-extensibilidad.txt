@@ -1,0 +1,74 @@
+Kubernetes para principiantes
+Capítulo 2 de 21 · Sección 5 de 7
+CRDs y extensibilidad: la API no es fija
+Una de las ideas más poderosas de Kubernetes es que la API no está cerrada. Todo lo que hemos visto — Pods, Deployments, Services — son tipos built-in, pero no son especiales. Cualquier tipo nuevo que agregues al cluster se comporta igual: tiene spec, status, metadata, se versiona, se consulta con kubectl, pasa por admission, se guarda en etcd.
+El mecanismo para añadir tipos se llama Custom Resource Definition — CRD. Y entenderlo abre una de las puertas más importantes del ecosistema: los Operators.
+Qué es un CRD
+Un CustomResourceDefinition es un objeto de Kubernetes (sí, la API se define a sí misma recursivamente) que le dice al apiserver: "a partir de ahora existe un tipo nuevo llamado X, con estos campos, en este grupo". Apenas aplicas el CRD, el apiserver empieza a aceptar objetos de ese tipo exactamente como si fueran built-in.
+Ejemplo mínimo — definir un recurso CronTab:
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+name: crontabs.stable.example.com
+spec:
+group: stable.example.com
+versions:
+- name: v1
+served: true
+storage: true
+schema:
+openAPIV3Schema:
+type: object
+properties:
+spec:
+type: object
+properties:
+cronSpec:
+type: string
+image:
+type: string
+scope: Namespaced
+names:
+plural: crontabs
+singular: crontab
+kind: CronTab
+shortNames:
+- ct
+Aplicar este YAML crea el tipo. A partir de ahí puedes hacer:
+kubectl get crontabs
+kubectl apply -f my-crontab.yaml
+kubectl describe crontab my-crontab
+Y el apiserver lo atenderá igual que a cualquier otro recurso.
+¿Qué ganas con esto?
+La API es el lenguaje universal del cluster. Todo lo que existe en Kubernetes se expresa como objetos. Cuando extiendes ese lenguaje con CRDs, todo lo que ya funciona sobre la API funciona también con tus tipos: GitOps con Argo CD, validación con OPA/Gatekeeper, kubectl, RBAC, audit logs, webhooks, todo.
+Algunos ejemplos del mundo real:
+cert-manager define Certificate, Issuer, CertificateRequest como CRDs.
+Argo CD define Application y ApplicationSet.
+Prometheus Operator define ServiceMonitor, PrometheusRule, Alertmanager.
+Istio define VirtualService, DestinationRule, Gateway.
+En cada caso, los CRDs permiten que el producto se configure "the Kubernetes way": un YAML por recurso, almacenado en el cluster, reconciliado por un controller.
+CRD sin controller: solo datos
+Aquí hay un detalle que mucha gente pasa por alto: un CRD por sí solo no hace nada. Es solo una forma de guardar datos estructurados en etcd, expuestos con la API del cluster.
+Si defines un CRD CronTab y creas un objeto my-crontab, el apiserver lo guarda, kubectl lo muestra, y… nada más pasa. Nadie va a crear un Pod para ejecutar ese CronTab. Lo que hace que un CRD "cobre vida" es un controller custom que vigila ese tipo y actúa.
+Operator pattern: CRD + controller
+La combinación CRD + controller que reconcilia ese tipo es lo que se conoce como Operator pattern. Lo mencionamos en la sub-parte anterior: es la aplicación natural del patrón de control a un dominio específico.
+Un operator de PostgreSQL, por ejemplo:
+Define CRDs: PostgresCluster, PostgresBackup, PostgresUser.
+Corre un controller (normalmente en un Deployment dentro del cluster) que vigila esos tipos.
+Cuando alguien crea un PostgresCluster, el controller crea los StatefulSets, Services, ConfigMaps y Secrets necesarios — automatizando lo que un DBA haría a mano.
+El "dominio específico" puede ser cualquier cosa: bases de datos, message queues, certificados, GitOps, ML pipelines. Si encaja en el modelo declarativo, encaja en un operator.
+Próximamente
+En el backlog de la plataforma hay dos tutoriales pensados para esto: "Crear un CRD desde 0" y "Escribir un operator". Cuando se publiquen, vas a construir exactamente este patrón paso a paso.
+Validación y versioning de CRDs
+Un CRD serio incluye tres cosas:
+Un OpenAPI v3 schema — define los campos válidos y sus tipos, para que el apiserver rechace YAMLs malformados.
+Versiones explícitas — igual que los tipos built-in, un CRD puede tener v1alpha1, v1beta1, v1. Solo una versión es la "de almacenamiento" (storage: true), las demás se convierten on-the-fly.
+Subresources — status y scale como subresources propios, para respetar el patrón de que el status lo actualiza solo el controller.
+CRDs frente a API aggregation
+Existe una segunda forma de extender la API: API aggregation, donde expones otro apiserver propio que el apiserver principal delega rutas. Es más poderoso pero también más complejo (tienes que correr y mantener un apiserver). Para el 99% de los casos, un CRD basta.
+Para la KCNA basta con saber que:
+Los CRDs son la forma principal de extender la API.
+Un CRD sin controller no hace nada funcional; solo guarda datos.
+La combinación CRD + controller = Operator.
+Existe también API aggregation para casos avanzados.
+En la siguiente sub-parte bajamos al lado del cliente: cómo se trabaja con todos estos objetos desde kubectl, y qué diferencia hay entre apply, create, --dry-run y el server-side apply.

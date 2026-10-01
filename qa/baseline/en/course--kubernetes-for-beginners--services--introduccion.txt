@@ -1,0 +1,35 @@
+Kubernetes for Beginners
+Chapter 9 of 21 · Section 1 of 7
+Introduction: Pods Are Ephemeral, Services Are Not
+The ephemeral IP problem
+When a Pod dies and is recreated, it gets a new IP. Services solve this with a stable virtual IP that routes to the correct set of Pods using selectors.
+ClusterIP (default)
+Exposes the Service on an internal cluster IP. Only accessible from within the cluster. Ideal for microservice-to-microservice communication.
+apiVersion: v1
+kind: Service
+metadata:
+name: my-service
+spec:
+selector:
+app: my-app
+ports:
+- port: 80
+targetPort: 8080
+type: ClusterIP
+NodePort
+Exposes the Service on a static port on each node (30000–32767). Accessible from outside the cluster via NodeIP:NodePort. Useful for development, not recommended for production.
+spec:
+type: NodePort
+ports:
+- port: 80
+targetPort: 8080
+nodePort: 30080
+LoadBalancer
+Provisions an external load balancer on cloud providers (AWS ELB, GCP LB, Azure LB). The standard method for exposing services in production.
+spec:
+type: LoadBalancer
+ports:
+- port: 80
+targetPort: 8080
+What about Ingress?
+To expose multiple HTTP/HTTPS services under the same IP/domain using routes, use an Ingress with an Ingress Controller (nginx, Traefik, etc.). More efficient than one LoadBalancer per service.

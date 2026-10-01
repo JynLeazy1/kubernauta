@@ -1,0 +1,36 @@
+Kubernetes for Beginners
+Chapter 2 of 21 · Section 7 of 7
+Summary: Why the Declarative Model Matters for the KCNA
+We're closing the chapter that probably changes how you see Kubernetes the most. Chapter 1 gave you the topography: which processes run where. This chapter gave you the language those processes use to understand each other. Let's recap.
+The contract in one sentence
+Kubernetes is declarative: you describe the state you want, the cluster commits to reaching and maintaining it. From that contract come idempotency, convergence, and free retries — the three properties a distributed system needs to survive itself.
+Objects, spec, status
+Everything in the cluster is an object: an instance of a resource. Every object has spec (what you declare), status (what the cluster observes), and metadata (identity and organization). You never write status; it's the controllers' territory.
+API: groups and versions
+Resources are organized in groups (core, apps, batch, networking.k8s.io, …) and have versions (alpha, beta, stable). The apiVersion in a YAML is literally the type's address within the API.
+Two commands to orient yourself in your cluster:
+kubectl api-resources
+kubectl explain <type>
+Controllers: the engine
+A controller is a loop that observes spec, observes the real world, and acts to converge. It's implemented with an informer + workqueue over the API. Every component — from the built-in ReplicaSet controller to a custom operator — follows the same pattern. And they all talk to the apiserver, never to etcd directly.
+CRDs and Operators: the API is not closed
+A CustomResourceDefinition adds a new type to the cluster. On its own it only stores data; combined with a custom controller it becomes an Operator. That's how cert-manager, Argo CD, Prometheus Operator, and Istio are built — and how you would build automation "the Kubernetes way".
+Client: apply and its variants
+kubectl apply is the declarative way to talk to the cluster. In production, preferably with server-side apply, which moves the merge to the apiserver and adds field ownership so multiple clients don't stomp each other.
+Two commands that save you from trouble:
+kubectl apply -f x.yaml --dry-run=server -o yaml
+kubectl diff -f x.yaml
+The full mental map
+If chapter 1 gave you an equation like "Kubernetes = apiserver + database + controllers + kubelets", chapter 2 completes it with the how:
+The apiserver receives declarations. Controllers, each with its informer, watch changes and reconcile. State lives in etcd but is accessed only through the apiserver. The model is extensible via CRDs and operators. The client (kubectl, Argo CD, Helm, whatever) is just an HTTP client speaking that declarative contract.
+That sentence is, in large part, the KCNA exam. Everything else is instances of these principles applied to specific objects.
+KCNA keys from this chapter
+Declarative = you describe desired state; the system converges.
+Every object has spec / status / metadata. You never write status.
+API groups: core (just v1) vs named groups (apps/v1, batch/v1, …). Versions: alpha / beta / stable.
+Controllers = reconciliation loops that talk only to the apiserver.
+CRDs extend the API; CRD + controller = Operator.
+apply is declarative; create and replace are imperative. Server-side apply resolves conflicts between multiple clients.
+What's next
+With topography (chapter 1) and language (chapter 2) in hand, we're ready to open the first real object: the Pod. In chapter 3 we see what's inside — the pause container, shared namespaces, sidecars, init containers, probes, lifecycle — and why it's the cluster's minimum unit.
+From there on, every chapter will open one type of object (Deployment, Service, Namespace, …) using the same method: what it declares, which controller reconciles it, and what happens in the kernel.

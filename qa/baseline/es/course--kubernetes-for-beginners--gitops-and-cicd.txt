@@ -1,0 +1,23 @@
+Kubernetes para principiantes · Capítulo 20 de 21
+GitOps y CI/CD en Kubernetes
+6 secciones
+En este capítulo
+01
+Introducción: la promesa de GitOps
+→
+02
+CI vs CD: dónde empieza Kubernetes
+→
+03
+Argo CD y Flux: los dos ejes
+→
+04
+Helm y Kustomize: cómo se empaqueta la app
+→
+05
+Rollouts progresivos y seguridad de despliegue
+→
+06
+Resumen
+→
+Empezar el capítulo →

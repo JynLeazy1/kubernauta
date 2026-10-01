@@ -1,0 +1,35 @@
+¿Qué es un Service?
+Parte 8 de 10
+El flujo completo de un paquete
+Hasta aquí vimos cada pieza por separado: la ClusterIP virtual, kube-proxy y las reglas iptables, los EndpointSlices, los tipos de Service, CoreDNS y los search domains. Ahora vamos a trazar el camino completo de un paquete desde el primer carácter que escribe la aplicación hasta la respuesta que recibe — sin saltear nada.
+El escenario: un Pod en 192.168.1.5 llama a curl http://nginx. El Service nginx tiene ClusterIP 10.99.20.216 y tres Pods backend en 192.168.1.5, 192.168.1.6 y 192.168.1.7.
+Paso 1: resolución DNS
+curl llama a getaddrinfo("nginx"). El resolver de libc lee /etc/resolv.conf: nameserver 10.96.0.10, search domains default.svc.cluster.local svc.cluster.local cluster.local, ndots:5. El nombre nginx tiene 0 puntos — menos de 5 — así que el resolver prueba el primer search domain antes de intentarlo como nombre absoluto. Envía una query A para nginx.default.svc.cluster.local a 10.96.0.10:53.
+Ese paquete UDP con destino 10.96.0.10:53 es interceptado por las reglas iptables de kube-proxy — 10.96.0.10 es la ClusterIP del Service kube-dns — y redirigido via DNAT a uno de los Pods de CoreDNS. CoreDNS recibe la query, consulta su cache en memoria para el dominio cluster.local (recuerda: no cachea, responde directo desde su índice de Services), y devuelve un registro A: nginx.default.svc.cluster.local → 10.99.20.216. El resolver de libc recibe la respuesta y se la pasa a curl. curl ahora sabe que tiene que conectarse a 10.99.20.216:80.
+Paso 2: la conexión TCP y el primer paquete
+curl llama a connect(). El kernel crea un socket TCP y emite el primer paquete SYN con destino 10.99.20.216:80. Ese paquete sale del network namespace del Pod a través de su interfaz virtual (eth0), cruza el veth pair hacia el nodo, y entra al stack de red del kernel del nodo — donde viven las reglas iptables.
+Paso 3: netfilter intercepta el paquete
+El paquete entra al hook OUTPUT de netfilter (o PREROUTING si viene de otro nodo). Netfilter lo deriva a la tabla nat, chain KUBE-SERVICES. Las reglas se evalúan en orden hasta que la que coincide con 10.99.20.216:80 gana y salta a KUBE-SVC-2CMXP7HKUVJN7L6M.
+En KUBE-SVC-*, la primera regla verifica si el origen está fuera del pod CIDR — si es así, marca el paquete para masquerading. Luego las reglas estadísticas deciden a qué Pod enviarlo: probabilidad 1/3 para el primero, 1/2 del resto para el segundo, todo lo que queda para el tercero. Supongamos que el paquete cae en la regla del tercer Pod y salta a KUBE-SEP-4AGQXI4GR55VNW45.
+En KUBE-SEP-*, la regla DNAT reescribe la IP de destino del paquete: de 10.99.20.216 a 192.168.1.7. El paquete ahora tiene destino real. Conntrack registra la traducción: conexión de 192.168.1.5:XXXXX→10.99.20.216:80 fue DNATteada a 192.168.1.7:80.
+Paso 4: enrutamiento al Pod
+Con la IP de destino reescrita a 192.168.1.7, el kernel consulta su tabla de ruteo. La ruta a 192.168.1.7 fue instalada por el plugin CNI (Canal/Calico en este cluster) cuando el Pod fue creado. El paquete viaja por la interfaz virtual del nodo hacia el network namespace del Pod destino, donde nginx está escuchando en el puerto 80.
+Paso 5: el Pod responde
+nginx procesa el request y emite la respuesta TCP con origen 192.168.1.7:80 y destino 192.168.1.5:XXXXX. El paquete sale del Pod, entra al stack del nodo, y llega al hook de netfilter. Esta vez, conntrack lo intercepta antes de que llegue a las chains de la tabla nat: el módulo de connection tracking reconoce que este paquete es la respuesta a una conexión que fue DNATteada, y automáticamente reescribe la IP de origen de 192.168.1.7 a 10.99.20.216.
+El paquete llega al Pod original con origen 10.99.20.216:80 — exactamente la IP a la que curl se conectó. La conexión TCP se completa correctamente. El Pod en 192.168.1.5 nunca supo que habló con 192.168.1.7.
+El flujo completo
+# 1. DNS: nginx → nginx.default.svc.cluster.local → 10.99.20.216
+# (getaddrinfo → search domain → query A → CoreDNS → A record)
+# 2. TCP SYN: src=192.168.1.5 dst=10.99.20.216:80
+# (curl connect() → kernel socket → paquete sale del Pod)
+# 3. iptables nat OUTPUT:
+# KUBE-SERVICES → KUBE-SVC-2CMXP7HKUVJN7L6M
+# → statistic probability 0.333... → KUBE-SEP-4AGQXI4GR55VNW45
+# → DNAT tcp to:192.168.1.7:80
+# conntrack registra: 192.168.1.5:X→10.99.20.216:80 ↔ 192.168.1.7:80
+# 4. Routing: kernel → ruta CNI → veth → network ns Pod 192.168.1.7
+# nginx recibe SYN, acepta conexión
+# 5. Respuesta: src=192.168.1.7:80 dst=192.168.1.5:X
+# conntrack: reescribe src 192.168.1.7 → 10.99.20.216
+# curl recibe respuesta de 10.99.20.216:80 ✓
+Cada componente hace exactamente una cosa: CoreDNS resuelve nombres, kube-proxy instala reglas, netfilter reescribe IPs, conntrack recuerda traducciones, el CNI enruta al Pod. Ninguno sabe del trabajo de los demás — se coordinan a través del estado del kernel, no a través de comunicación directa.

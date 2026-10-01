@@ -1,0 +1,35 @@
+Kubernetes para principiantes
+Capítulo 9 de 21 · Sección 1 de 7
+Introducción: los Pods son efímeros, las Services no
+El problema de las IPs efímeras
+Cuando un Pod muere y se recrea, obtiene una nueva IP. Los Services resuelven esto con una IP virtual estable que enruta al conjunto de Pods correctos usando selectors.
+ClusterIP (por defecto)
+Expone el Service en una IP interna del clúster. Solo accesible desde dentro del clúster.
+apiVersion: v1
+kind: Service
+metadata:
+name: mi-servicio
+spec:
+selector:
+app: mi-app
+ports:
+- port: 80
+targetPort: 8080
+type: ClusterIP
+NodePort
+Expone el Service en un puerto estático de cada nodo (30000–32767). Útil para desarrollo, no recomendado para producción.
+spec:
+type: NodePort
+ports:
+- port: 80
+targetPort: 8080
+nodePort: 30080
+LoadBalancer
+Aprovisiona un balanceador de carga externo en proveedores de nube. Método estándar para exponer servicios en producción.
+spec:
+type: LoadBalancer
+ports:
+- port: 80
+targetPort: 8080
+¿Y el Ingress?
+Para exponer múltiples servicios HTTP/HTTPS bajo un mismo IP/dominio usando rutas, usa un Ingress con un Ingress Controller (nginx, Traefik, etc.).

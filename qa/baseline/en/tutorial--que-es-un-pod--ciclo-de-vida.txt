@@ -1,0 +1,148 @@
+What is a Pod?
+Part 8 of 10
+Lifecycle: Phases, Probes, and restartPolicy
+A Pod does not live forever. From the moment kubelet receives the instruction to create it until it is deleted, it passes through a series of well-defined phases. Understanding the lifecycle is critical for diagnosing issues and designing applications that behave well under failure.
+Pod phases
+The status.phase field reflects the overall state of the Pod from the cluster's perspective.
+Pending means the Pod was accepted but its containers are not yet running. It may be waiting for the scheduler to assign a node, pulling images, or waiting for init containers to finish.
+Running indicates that at least one container is running or in the process of restarting. It does not mean the Pod is ready to receive traffic — that is determined by the readinessProbe.
+Succeeded means all containers exited with code 0 and will not restart. It is the expected final state for Jobs and batch tasks.
+Failed indicates all containers have exited but at least one did so with a non-zero exit code. The Pod will not restart.
+Unknown appears when the API server cannot obtain the Pod's state, usually because the node lost communication with the cluster.
+kubectl get pods
+# NAME READY STATUS RESTARTS AGE
+# my-app-xyz 2/2 Running 0 5m
+# my-job-abc 0/1 Pending 0 30s
+# my-task 0/1 Completed 0 1h
+Pod conditions
+Phases are too coarse for real diagnosis. Conditions are more granular booleans that reflect sub-states within each phase:
+kubectl describe pod my-app-xyz
+# Conditions:
+# Type Status
+# Initialized True ← All init containers finished successfully
+# Ready True ← All containers Ready (readinessProbe OK)
+# ContainersReady True ← All containers are ready
+# PodScheduled True ← The Pod was assigned to a node
+When a Pod is in Running but Ready is False, the containers are alive but did not pass the readinessProbe. The Service will not send traffic to them until Ready is True.
+Probes: how kubelet asks whether your app is still alive
+A live process is not the same as a healthy one. A web server can hold PID 1 but be deadlocked; a process can have started but not yet be ready to accept traffic. To answer those questions, kubelet runs probes against the containers at regular intervals. There are three types, each with a distinct purpose:
+livenessProbe — is the process alive and responding? If it fails N times in a row, kubelet kills the container and lets restartPolicy decide whether to restart it.
+readinessProbe — is the container ready to accept traffic? If it fails, kubelet pulls the Pod out of the Services' endpoint pool. It does not restart anything; it only redirects traffic away while the Pod is not ready.
+startupProbe — has the app finished booting? While it is running, liveness and readiness are suspended. Useful for apps with slow startup (JVMs loading large heaps, DB migrations on boot) that would otherwise be killed by liveness during startup.
+Each probe can use one of four mechanisms:
+exec: runs a command inside the container; exit 0 = success.
+httpGet: performs an HTTP GET against a path; any 2xx or 3xx status counts as success.
+tcpSocket: tries to open a TCP connection to a port; success if it connects.
+grpc: uses the gRPC health checking protocol (kubelet 1.24+ with a feature gate, GA in 1.27).
+A concrete example with all three types together:
+spec:
+containers:
+- name: app
+image: my-app:1.0
+ports:
+- containerPort: 8080
+# Only during startup
+startupProbe:
+httpGet:
+path: /healthz
+port: 8080
+failureThreshold: 30 # 30 attempts × 10s = 5 min grace
+periodSeconds: 10
+# Is it alive? (runs only after startupProbe passes)
+livenessProbe:
+httpGet:
+path: /healthz
+port: 8080
+periodSeconds: 10 # Every 10s
+failureThreshold: 3 # 3 consecutive failures → kill
+# Ready to receive traffic?
+readinessProbe:
+httpGet:
+path: /ready
+port: 8080
+periodSeconds: 5
+failureThreshold: 1 # A single failure pulls it from the pool
+When a probe fails you see it in the Pod's events:
+kubectl describe pod my-app
+# ...
+# Events:
+# Type Reason From Message
+# ---- ------ ---- -------
+# Warning Unhealthy kubelet Liveness probe failed: HTTP probe failed with statuscode: 500
+# Warning Unhealthy kubelet Liveness probe failed: HTTP probe failed with statuscode: 500
+# Warning Unhealthy kubelet Liveness probe failed: HTTP probe failed with statuscode: 500
+# Normal Killing kubelet Container app failed liveness probe, will be restarted
+Quick checks with jsonpath:
+# Current readiness state per container
+kubectl get pod my-app -o jsonpath='{.status.containerStatuses[*].ready}'
+# true false
+# How many times the container has restarted (a liveness-failure tell)
+kubectl get pod my-app -o jsonpath='{.status.containerStatuses[*].restartCount}'
+# 12
+Why the liveness vs readiness distinction matters: they can look redundant but do opposite things. Liveness restarts; readiness redirects traffic. Without readiness, a slow-starting app accepts traffic before it is ready — the Service has no idea. Without liveness, a deadlocked app never restarts — it just sits in Not Ready while logs pile up.
+Classic livenessProbe trap: pointing liveness at the same endpoint as readiness ("if it is ready, it is alive") is a bad design. A transient readiness failure — e.g. the database briefly flapping — would cascade into restarting the container. Rule of thumb: liveness only checks the in-process state; readiness can check external dependencies.
+The complete flow: from Pending to Running
+kubectl apply
+→ Pending: scheduler looks for a node with resources
+→ Pending (PodScheduled: True): node assigned, kubelet pulls images
+→ Pending (Initialized: False): init containers running in sequence
+→ Pending (Initialized: True): all init containers succeeded
+→ Running (ContainersReady: False): pause + regular containers started
+startupProbe active (if it exists) → blocks liveness and readiness
+→ Running (ContainersReady: False): startupProbe passed, readinessProbe running
+→ Running (Ready: True): readinessProbe OK → Pod enters the endpoint pool
+restartPolicy: what kubelet does when a container dies
+restartPolicy is a Pod spec field with three possible values. Always restarts the container whenever it dies, regardless of the exit code — it is the default for Deployments and most workloads. OnFailure restarts only if the exit code is non-zero, useful for Jobs that must complete successfully. Never never restarts — the container dies and stays that way.
+spec:
+restartPolicy: Always # Always | OnFailure | Never
+containers:
+- name: app
+image: my-app:1.0
+When kubelet restarts a container, it does not destroy or recreate the Pod. The pause container stays alive with its namespaces — only the container that died is recreated and rejoins the same sandbox. That is why the Pod's IP does not change between restarts.
+The restart is not immediate — it uses exponential backoff:
+# 10s → 20s → 40s → 80s → 160s → 300s (maximum)
+# Resets to 0 if the container runs successfully for more than 10 minutes
+kubectl get pods
+# NAME READY STATUS RESTARTS AGE
+# my-app 0/1 CrashLoopBackOff 5 8m
+# Exact reason for the last crash + exit code, no need to open kubectl describe:
+kubectl get pod my-app -o jsonpath='{.status.containerStatuses[0].lastState.terminated}{"\n"}'
+# {"exitCode":1,"reason":"Error","startedAt":"2026-04-23T11:21:14Z",
+# "finishedAt":"2026-04-23T11:21:24Z","containerID":"containerd://3a9dd44..."}
+# And the Pod events (usually carry the more informative message):
+kubectl describe pod my-app | grep -A2 "Last State"
+# Last State: Terminated
+# Reason: Error
+# Exit Code: 1
+CrashLoopBackOff is not a Kubernetes state: It does not appear in status.phase. It is just how kubectl visually displays that the Pod is in a restart loop with backoff. Internally the Pod remains in the Running phase.
+Graceful termination
+When you delete a Pod, Kubernetes follows a defined process to avoid cutting connections abruptly:
+# 1. kubectl delete pod my-pod
+# → Pod marked as "Terminating"
+# → Pod removed from all Services' endpoint pools
+#
+# 2. kubelet sends SIGTERM to all containers
+# → The Pod has terminationGracePeriodSeconds to finish (default: 30s)
+#
+# 3. Containers handle SIGTERM and close connections cleanly
+#
+# 4. If time runs out → kubelet sends SIGKILL
+spec:
+terminationGracePeriodSeconds: 60
+containers:
+- name: app
+lifecycle:
+preStop:
+exec:
+command: ["/bin/sh", "-c", "sleep 5"]
+# preStop runs before SIGTERM
+# useful to give the load balancer time to deregister the Pod
+Quick diagnosis
+# Detailed state and events
+kubectl describe pod my-pod
+# Logs from the current container
+kubectl logs my-pod -c app
+# Logs from the previous container (if it crashed and restarted)
+kubectl logs my-pod -c app --previous
+# Exit code from the last crash
+kubectl get pod my-pod -o jsonpath='{.status.containerStatuses[0].lastState}'

@@ -1,0 +1,19 @@
+What is a Pod?
+Part 1 of 10
+Introduction: A Pod Is Not a Container
+You have probably seen it a thousand times. In every Kubernetes tutorial, every course, every piece of documentation: "a Pod is not a container", "it is the smallest deployable unit in Kubernetes", "a Pod can have multiple containers". You know it by heart. And if you are like me and you like to understand how things actually work under the hood — what really happens, how Linux creates those Pods, what unfolds when kubelet gets the instruction to spin one up, and why that makes it fundamentally different from a container — keep reading, because that is exactly what this tutorial is about.
+We are not going to stop at the definition. We are going to open up a Pod, look at every piece that makes it up, understand why each one exists, and get to the point where when someone tells you "a Pod is the smallest unit in Kubernetes" you can answer "yes, and here is exactly why".
+What you already know... and what is missing
+If you came from the previous tutorial about containers, you have the perfect foundation: you know that a container is a Linux process with namespaces and cgroups, that the filesystem comes from an OverlayFS, and that isolation is an illusion built by the kernel. That is exactly what we are going to use now.
+A Pod does not replace that abstraction. It extends it. The question it answers is different:
+A container answers: how do I isolate a process?
+A Pod answers: how do I group processes that need to live together?
+And "live together" is not a metaphor — it is literal. It means sharing the same network namespace, the same IP, the same hostname. It means that if one container dies and restarts, the others do not lose their network connection. It means there is an invisible process, called pause, whose only job is to keep those namespaces alive while the application containers do their thing.
+What we are going to cover
+We are going to dissect a Pod from the inside out:
+Anatomy: what fields the spec has and what instructions they actually give the kernel.
+The pause container: the anchor of the shared namespaces without which a Pod cannot exist.
+Multi-container: sidecars and init containers, not as design patterns but as direct consequences of the namespace model.
+Networking: why all containers in a Pod talk to each other via localhost, and what that means in kernel terms.
+Lifecycle: phases, conditions, probes, and restartPolicy — what Kubernetes sees and what the kernel sees.
+By the end, a Pod will stop being a definition you recite and become something you actually understand.

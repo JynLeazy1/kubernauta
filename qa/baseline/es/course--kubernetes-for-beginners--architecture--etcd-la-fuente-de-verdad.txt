@@ -1,0 +1,38 @@
+Kubernetes para principiantes
+Capítulo 1 de 21 · Sección 5 de 7
+etcd: la fuente de verdad del cluster
+Hemos mencionado etcd en casi cada sub-parte. Toca abrirlo. Porque aunque técnicamente no es "parte" de Kubernetes — es un proyecto CNCF graduado con vida propia — sin él no hay cluster. Si borras etcd, el cluster deja de existir.
+Qué es etcd
+etcd es una base de datos key-value distribuida, pensada para guardar el estado de configuración de sistemas distribuidos. No es una base de datos de propósito general: no corre queries complejas, no tiene joins, no soporta transacciones multi-documento. Lo que sí hace, lo hace muy bien:
+Guardar y recuperar valores por clave (tipo /registry/pods/default/my-pod).
+Garantizar consistencia fuerte: lo que acabas de escribir, lo lees.
+Notificar a clientes interesados cuando una clave cambia — el famoso watch.
+Sobrevivir a la caída de un nodo si el cluster tiene suficientes.
+Kubernetes usa esas cuatro cosas sin parar. Cada objeto que defines (Deployment, Pod, ConfigMap, …) se guarda como una clave. Cada componente (apiserver, controllers, kubelet) se suscribe a watches sobre las claves que le importan.
+Raft: cómo sobrevive a fallos
+Un solo nodo de etcd es un punto único de fallo. Por eso se despliega en clusters de 3 o 5 nodos que se coordinan con el algoritmo Raft.
+La idea de Raft, en pocas palabras: los nodos eligen un leader, todas las escrituras pasan por él, y él las replica a los demás (followers). Una escritura se considera exitosa solo cuando la mayoría la ha confirmado. Esa regla — mayoría — es la que define cuántos fallos soportas:
+3 nodos → tolera 1 caído (mayoría = 2).
+5 nodos → tolera 2 caídos (mayoría = 3).
+7 nodos → tolera 3 caídos, pero las escrituras se vuelven lentas por la replicación.
+Por eso en producción casi siempre ves etcd en 3 o 5 nodos. Más no ayuda: añade latencia sin aumentar significativamente la tolerancia.
+Un detalle importante: el número de nodos siempre es impar. Con un número par no ganas nada en tolerancia y sí aumentas el costo de replicación. Con 4 nodos, la mayoría sigue siendo 3 (igual que con 5), así que es desperdicio.
+El modelo watch
+Este es el mecanismo que hace posible la arquitectura reactiva de Kubernetes. Un cliente le dice a etcd "avísame cuando cambie cualquier clave bajo /registry/pods/", y etcd le manda una notificación por cada cambio — indefinidamente, hasta que el cliente cierre la conexión.
+El apiserver es quien hace los watches a etcd. El resto de los componentes (scheduler, kubelet, controllers) hacen watches al apiserver, no directamente a etcd. El apiserver actúa como un "multiplexador": recibe un watch de etcd, y lo reenvía a todos los clientes que estaban interesados.
+Esto mantiene etcd protegido: solo tiene un cliente real, el apiserver.
+Por qué etcd es el talón de Aquiles
+Todo el estado del cluster vive en etcd. Todo. Si etcd cae o se corrompe, tu cluster pierde la memoria de quién debería estar corriendo. Los Pods actuales siguen vivos en los nodos — el kubelet no los mata — pero el control plane queda ciego:
+No puedes crear ni modificar nada.
+Los controllers no pueden reconciliar (el apiserver no responde).
+Si se pierde el estado por corrupción, recuperar requiere restore desde un snapshot.
+Por eso hacer backups de etcd es una de las tareas más críticas de operar Kubernetes. etcdctl snapshot save es el comando que deberías tener programado y monitoreado en producción.
+El tamaño típico de etcd es pequeño (cientos de MB para clusters medianos), pero crece con la cantidad de objetos. Deployments con muchos ReplicaSets históricos, Jobs antiguos, eventos — todo cuenta.
+Qué necesitas saber para la KCNA
+El examen no te va a pedir que debuggees etcd, pero sí que sepas:
+Es un key-value store, no una base relacional.
+Usa Raft y requiere un número impar de nodos para quórum.
+Es la única fuente de verdad del cluster.
+Solo el apiserver habla con él.
+Es la pieza más crítica a respaldar.
+En la siguiente sub-parte cerramos el capítulo con el tema que dejamos pendiente: alta disponibilidad. ¿Qué pasa si el servidor donde corre todo el control plane — apiserver, etcd incluido — se cae?

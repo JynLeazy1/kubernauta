@@ -1,0 +1,26 @@
+Kubernetes for Beginners · Chapter 6 of 21
+Namespaces: Isolation and Resource Organization
+7 sections
+In this chapter
+01
+Introduction: The Problem They Solve
+→
+02
+Default Namespaces: default, kube-system, kube-public
+→
+03
+Create, List, and Switch Namespaces
+→
+04
+Namespaced vs Cluster-Scoped Resources
+→
+05
+ResourceQuota and LimitRange: Controlling Consumption
+→
+06
+NetworkPolicy: Isolation Between Namespaces
+→
+07
+Summary
+→
+Start the chapter →

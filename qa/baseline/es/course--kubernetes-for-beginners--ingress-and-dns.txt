@@ -1,0 +1,23 @@
+Kubernetes para principiantes · Capítulo 10 de 21
+Ingress y DNS en el cluster
+6 secciones
+En este capítulo
+01
+Introducción: cómo entra el tráfico externo
+→
+02
+Ingress: reglas HTTP y HTTPS
+→
+03
+IngressController: quién ejecuta esas reglas
+→
+04
+CoreDNS: cómo se resuelven los nombres dentro del cluster
+→
+05
+Ingress vs Gateway API
+→
+06
+Resumen
+→
+Empezar el capítulo →

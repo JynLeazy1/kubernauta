@@ -1,0 +1,106 @@
+¿Qué es un Pod?
+Parte 9 de 10
+Cómo crear un Pod desde 0
+Hasta ahora vimos qué hace Kubernetes cuando crea un Pod. En esta sección vamos a replicar ese proceso manualmente — extraer los rootfs de las imágenes, crear el sandbox con unshare y pivot_root, y unir nginx al mismo sandbox. Sin kubelet, sin containerd, sin docker run. Solo llamadas al kernel de Linux.
+Es la extensión natural de lo que hicimos en construyendo un contenedor desde 0: ahí ensamblamos un container con namespaces propios; ahora ensamblamos dos rootfs que comparten net/ipc/uts gracias a setns().
+Preparar los directorios e imágenes
+mkdir -p /tmp/pod-demo/{pause-img,nginx-img,pause-layers/layer0,pause-overlay/{upper,work,merged}}
+docker pull registry.k8s.io/pause:3.9
+docker pull nginx:alpine
+docker save registry.k8s.io/pause:3.9 -o /tmp/pod-demo/pause.tar
+docker save nginx:alpine -o /tmp/pod-demo/nginx.tar
+tar -xf /tmp/pod-demo/pause.tar -C /tmp/pod-demo/pause-img
+tar -xf /tmp/pod-demo/nginx.tar -C /tmp/pod-demo/nginx-img
+Extraer capas y montar los OverlayFS
+El manifest.json dentro de cada tarball describe las capas que componen la imagen y el orden en que deben aplicarse. Para pause hay una sola capa — el binario estático. Para nginx:alpine hay ocho capas, una por instrucción RUN del Dockerfile.
+# pause: una capa → extraer directo al layer0
+jq -r '.[0].Layers[]' /tmp/pod-demo/pause-img/manifest.json | while read layer; do
+tar -xf "/tmp/pod-demo/pause-img/$layer" -C /tmp/pod-demo/pause-layers/layer0 2>/dev/null || true
+done
+cat /tmp/pod-demo/pause-img/manifest.json | jq -r '.[0].Layers[]'
+# blobs/sha256/e3e5579... ← una sola capa
+cat /tmp/pod-demo/nginx-img/manifest.json | jq -r '.[0].Layers[]'
+# blobs/sha256/989e799...
+# blobs/sha256/6e27cbd...
+# blobs/sha256/bdb037c... ← ocho capas
+pause no necesita OverlayFS — una sola capa no tiene nada que apilar. Pero sí necesita un mount point para pivot_root, así que montamos igualmente:
+# pause: montar overlay (para tener un mount point para pivot_root)
+sudo mount -t overlay overlay -o "lowerdir=/tmp/pod-demo/pause-layers/layer0,upperdir=/tmp/pod-demo/pause-overlay/upper,workdir=/tmp/pod-demo/pause-overlay/work" /tmp/pod-demo/pause-overlay/merged
+Para nginx, cada capa va en su propio directorio. OverlayFS las apila en orden inverso — la más reciente tiene mayor prioridad:
+# nginx: extraer cada capa en su propio directorio
+mapfile -t LAYERS < <(jq -r '.[0].Layers[]' /tmp/pod-demo/nginx-img/manifest.json)
+for i in "${!LAYERS[@]}"; do
+mkdir -p "/tmp/pod-demo/nginx-layers/layer$i"
+tar -xf "/tmp/pod-demo/nginx-img/${LAYERS[$i]}" -C "/tmp/pod-demo/nginx-layers/layer$i" 2>/dev/null || true
+done
+# construir lowerdir en orden inverso (capa más reciente primero)
+NLAYERS=${#LAYERS[@]}
+LOWERDIRS=""
+for ((i=NLAYERS-1; i>=0; i--)); do
+[ -n "$LOWERDIRS" ] && LOWERDIRS="$LOWERDIRS:"
+LOWERDIRS="${LOWERDIRS}/tmp/pod-demo/nginx-layers/layer$i"
+done
+mkdir -p /tmp/pod-demo/nginx-overlay/{upper,work,merged}
+sudo mount -t overlay overlay -o "lowerdir=$LOWERDIRS,upperdir=/tmp/pod-demo/nginx-overlay/upper,workdir=/tmp/pod-demo/nginx-overlay/work" /tmp/pod-demo/nginx-overlay/merged
+ls /tmp/pod-demo/pause-overlay/merged/ # → pause
+ls /tmp/pod-demo/nginx-overlay/merged/ # → bin dev etc ...
+Terminal 1 — Crear el sandbox (pause)
+unshare crea los namespaces nuevos. Abrimos un bash dentro del nuevo entorno para montar /proc antes de hacer pivot_root — una vez cambiado el root, el rootfs del pause solo tiene el binario /pause y no hay herramientas del host disponibles:
+sudo unshare --net --ipc --uts --pid --mount --fork /bin/bash
+# Todavía en el filesystem del host — montar proc antes del pivot_root
+mkdir -p /tmp/pod-demo/pause-overlay/merged/proc
+mount -t proc proc /tmp/pod-demo/pause-overlay/merged/proc
+cd /tmp/pod-demo/pause-overlay/merged
+mkdir -p .old-root
+pivot_root . .old-root
+umount -l /.old-root
+rmdir /.old-root
+exec /pause
+# (queda bloqueado esperando señales — exactamente su función)
+Terminal 2 — Unir nginx al sandbox
+Con pause corriendo, buscamos su PID en el host. Como en este entorno hay varios procesos pause (Kubernetes los usa también), usamos -n para obtener el más reciente:
+PAUSE_PID=$(pgrep -xn pause)
+echo $PAUSE_PID
+# 176418
+ls -la /proc/$PAUSE_PID/ns/
+# ipc -> ipc:[4026532766]
+# mnt -> mnt:[4026532763]
+# net -> net:[4026532768]
+# pid -> pid:[4026532767]
+# uts -> uts:[4026532765]
+nsenter entra a los namespaces de net, IPC y UTS del pause. unshare crea nuevos namespaces de pid y mnt para nginx. Igual que el pause, montamos /proc antes del pivot_root:
+nsenter --net=/proc/$PAUSE_PID/ns/net --ipc=/proc/$PAUSE_PID/ns/ipc --uts=/proc/$PAUSE_PID/ns/uts unshare --pid --mount --fork /bin/bash
+mount -t proc proc /tmp/pod-demo/nginx-overlay/merged/proc
+cd /tmp/pod-demo/nginx-overlay/merged
+mkdir -p .old-root
+pivot_root . .old-root
+umount -l /.old-root
+rmdir /.old-root
+exec /usr/sbin/nginx -g "daemon off;"
+Terminal 3 — Inspeccionar desde el host
+PAUSE_PID=$(pgrep -xn pause)
+NGINX_PID=$(pgrep -x nginx | head -1)
+lsns -p $PAUSE_PID
+# NS TYPE NPROCS PID USER COMMAND
+# 4026532763 mnt 2 176417 root unshare --net --ipc --uts --pid --mount --fork /bin/bash
+# 4026532765 uts 5 176417 root unshare --net --ipc --uts --pid --mount --fork /bin/bash
+# 4026532766 ipc 5 176417 root unshare --net --ipc --uts --pid --mount --fork /bin/bash
+# 4026532767 pid 1 176418 root `-/pause
+# 4026532768 net 5 176417 root unshare --net --ipc --uts --pid --mount --fork /bin/bash
+lsns -p $NGINX_PID
+# NS TYPE NPROCS PID USER COMMAND
+# 4026532765 uts 5 176417 root unshare --net --ipc --uts --pid --mount --fork /bin/bash ← mismo que pause
+# 4026532766 ipc 5 176417 root unshare --net --ipc --uts --pid --mount --fork /bin/bash ← mismo que pause
+# 4026532768 net 6 176417 root unshare --net --ipc --uts --pid --mount --fork /bin/bash ← mismo que pause
+# 4026532825 mnt 3 188788 root unshare --pid --mount --fork /bin/bash ← propio
+# 4026532826 pid 2 188789 root `-nginx: master process /usr/sbin/nginx -g daemon off; ← propio
+nginx escucha en el puerto 80 del namespace de red del pause. Para accederlo hay que entrar al namespace con nsenter — y levantar el loopback, que en un namespace nuevo arranca en estado DOWN:
+nsenter --net=/proc/$PAUSE_PID/ns/net -- ss -tlnp
+# LISTEN 0 511 0.0.0.0:80 users:(("nginx",pid=189391,...))
+nsenter --net=/proc/$PAUSE_PID/ns/net -- ip link set lo up
+nsenter --net=/proc/$PAUSE_PID/ns/net -- curl -s localhost | head -4
+# <!DOCTYPE html>
+# <html>
+# <head>
+# <title>Welcome to nginx!</title>
+Esto es exactamente lo que hace containerd cuando kubelet llama RunPodSandbox (pause + namespaces) y luego CreateContainer (nginx entrando al sandbox). La diferencia es que containerd también ejecuta el plugin CNI para asignar una IP real al namespace de red — en nuestro caso la interfaz solo tiene loopback.

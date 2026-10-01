@@ -1,0 +1,20 @@
+Kubernetes for Beginners · Chapter 21 of 21
+How to Prepare for the KCNA Exam
+5 sections
+In this chapter
+01
+Introduction: What the KCNA Is and Who It's For
+→
+02
+Format, Time, and Weight per Domain
+→
+03
+Official Resources and Domain-by-Domain Review
+→
+04
+Practice Exams and Test-Day Strategy
+→
+05
+After the KCNA: CKAD, CKA, and the Long Road
+→
+Start the chapter →

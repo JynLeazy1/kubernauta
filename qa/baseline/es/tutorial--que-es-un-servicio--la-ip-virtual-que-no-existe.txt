@@ -1,0 +1,42 @@
+¿Qué es un Service?
+Parte 2 de 10
+La IP virtual que no existe
+Cuando creas un Service de tipo ClusterIP, Kubernetes le asigna una IP del rango configurado en el API server — por defecto 10.96.0.0/12. Puedes verla con kubectl get svc:
+kubectl run nginx --image=nginx
+kubectl expose pod nginx --port 80
+kubectl get svc
+# NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+# kubernetes ClusterIP 10.96.0.1 <none> 443/TCP 9d
+# nginx ClusterIP 10.108.153.200 <none> 80/TCP 22m
+Ahora buscala en las interfaces — del nodo controlplane y del nodo01:
+ip addr | grep 10.108.153.200
+# (sin output)
+ip route | grep 10.108.153.200
+# (sin output)
+ssh node01
+ip addr | grep 10.108.153.200
+# (sin output)
+ip route | grep 10.108.153.200
+# (sin output)
+No está en ningún nodo. No hay ninguna interfaz de red con esa IP, no hay ningún proceso escuchando en ella. Sin embargo:
+curl http://10.108.153.200:80
+# <!DOCTYPE html>
+# <html>
+# <head>
+# <title>Welcome to nginx!</title>
+# ... ← funciona
+ping 10.108.153.200
+# PING 10.108.153.200 56(84) bytes of data.
+# 5 packets transmitted, 0 received, 100% packet loss ← no responde
+curl funciona. ping no. Esa asimetría no es un bug — es la clave para entender exactamente qué es una ClusterIP.
+Por qué curl funciona y ping no
+ping usa ICMP. curl usa TCP. La diferencia importa porque el mecanismo que hace funcionar la ClusterIP opera a nivel de conexiones TCP/UDP en el subsistema netfilter del kernel — específicamente en la tabla nat.
+Cuando un paquete TCP sale de un Pod con destino 10.108.153.200:80, el kernel lo procesa a través de las chains de netfilter antes de enrutarlo. En las chains PREROUTING y OUTPUT, kube-proxy instaló reglas que interceptan ese paquete y reescriben la IP de destino — de 10.108.153.200 a la IP real de uno de los Pods detrás del Service. Eso es un DNAT (Destination NAT).
+Una vez reescrita la IP destino a la IP de un Pod real, el kernel ya sabe cómo enrutar el paquete — la IP del Pod sí existe, sí tiene una ruta. El paquete llega al Pod. La respuesta vuelve con la IP del Pod como origen. Pero conntrack — el módulo de seguimiento de conexiones del kernel — recuerda que esa conexión fue DNAT-eada, y automáticamente reescribe la IP de origen en la respuesta de vuelta a 10.108.153.200. El cliente nunca ve la IP del Pod.
+ping no funciona porque las reglas instaladas por kube-proxy solo aplican a TCP y UDP, no a ICMP. El paquete llega a 10.108.153.200, no hay ninguna regla que lo intercepte, no hay ninguna interfaz que lo reciba, y se descarta silenciosamente.
+Dónde viven las reglas
+Las reglas están en la tabla nat de iptables. Puedes verlas directamente en el nodo:
+iptables -t nat -L KUBE-SERVICES | grep 10.108.153.200
+# KUBE-SVC-2CMXP7HKUVJN7L6M tcp -- anywhere 10.108.153.200 /* default/nginx cluster IP */ tcp dpt:http
+Esa entrada le dice al kernel: todo paquete TCP con destino 10.108.153.200:80 envialo a la chain KUBE-SVC-2CMXP7HKUVJN7L6M. Esa chain es donde ocurre el load balancing y el DNAT al Pod real. Lo veremos en detalle en la parte 4.
+Por ahora, lo fundamental: una ClusterIP no es una IP asignada a una interfaz. Es un selector de reglas iptables. Existe solo en la tabla nat del kernel, en cada nodo del cluster. kube-proxy es el proceso que las crea y las mantiene actualizadas.

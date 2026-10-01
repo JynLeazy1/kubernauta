@@ -1,0 +1,74 @@
+Kubernetes para principiantes
+Capítulo 4 de 21 · Sección 3 de 7
+Deployment: una capa sobre ReplicaSet
+El Deployment es la abstracción que envuelve al ReplicaSet y le añade lo que el ReplicaSet no sabe hacer: actualizar los Pods sin downtime y recordar versiones anteriores para poder volver atrás.
+La cadena Deployment → ReplicaSet → Pod
+Cuando aplicas un Deployment, lo que pasa por debajo es:
+El controller de Deployment crea un ReplicaSet con la spec del template actual.
+Ese ReplicaSet, a su vez, crea los Pods declarados en su template.
+Tres niveles. Tú interactúas con el Deployment; el Deployment interactúa con su ReplicaSet; el ReplicaSet interactúa con los Pods. Cada nivel hace una cosa específica.
+Anatomía del Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+name: web
+labels:
+app: web
+spec:
+replicas: 3
+selector:
+matchLabels:
+app: web
+strategy:
+type: RollingUpdate
+rollingUpdate:
+maxSurge: 1
+maxUnavailable: 0
+template:
+metadata:
+labels:
+app: web
+spec:
+containers:
+- name: nginx
+image: nginx:1.27
+ports:
+- containerPort: 80
+readinessProbe:
+httpGet:
+path: /
+port: 80
+Si comparas con el ReplicaSet de la sub-parte anterior, vas a ver que casi todo es lo mismo — replicas, selector, template. Lo nuevo es strategy, que es donde vive la magia del rolling update.
+strategy: cómo se actualizan los Pods
+Hay dos estrategias built-in:
+RollingUpdate (default): mata Pods viejos y crea nuevos en paralelo, manteniendo el servicio disponible durante la transición. Lo cubrimos a fondo en el capítulo 11.
+Recreate: mata todos los Pods viejos primero, luego crea los nuevos. Hay downtime garantizado, pero asegura que nunca corren las dos versiones al mismo tiempo. Útil para apps que no toleran ese cruce.
+Los dos parámetros del rolling update:
+maxSurge: cuántos Pods extra sobre el total se permiten temporalmente. Si replicas: 3 y maxSurge: 1, durante la rotación puede haber hasta 4 Pods.
+maxUnavailable: cuántos Pods menos del total se permiten. Con maxUnavailable: 0 nunca bajas de la cantidad declarada.
+La combinación que se usa más en producción es maxSurge: 1, maxUnavailable: 0: nunca pierdes capacidad, a cambio de necesitar un poco más de cluster durante el rollout.
+Qué pasa cuando cambias la imagen
+Supongamos que tienes el Deployment web corriendo con nginx:1.27 y haces:
+kubectl set image deployment/web nginx=nginx:1.28
+El controller de Deployment:
+Genera un hash del nuevo template. Como cambió la imagen, el hash es distinto.
+Busca un ReplicaSet con ese hash. No existe → crea uno nuevo (el "RS nuevo") con replicas: 0.
+Empieza a alternar: incrementa replicas en el RS nuevo (que pulla la imagen 1.28 y arranca un Pod), y cuando el Pod nuevo está Ready, decrementa replicas en el RS viejo (que mata uno de los Pods 1.27).
+Repite hasta que el RS nuevo tenga 3 réplicas y el viejo tenga 0.
+El RS viejo no se borra — se queda con replicas: 0, listo para un kubectl rollout undo si haces falta. Para ver la cadena en vivo:
+kubectl rollout status deployment/web
+kubectl get rs -l app=web
+kubectl get pods -l app=web -w
+Por qué importan los probes durante el rollout
+El paso "y cuando el Pod nuevo está Ready" del flujo anterior depende de la readinessProbe del Pod. Si tu app tarda 30 segundos en arrancar y no tienes readiness probe:
+Kubernetes considera al Pod listo apenas el contenedor pasa de Pending a Running.
+Empieza a recibir tráfico antes de estar lista de verdad.
+Los usuarios ven errores durante el rollout.
+Con readiness probe configurada, el Deployment espera a que cada Pod nuevo responda OK antes de seguir rotando. Por eso el manifest de ejemplo arriba tiene una.
+Para la KCNA
+Un Deployment crea ReplicaSets, los ReplicaSets crean Pods.
+Cambiar el template del Deployment crea un nuevo ReplicaSet; el viejo queda con replicas=0.
+Estrategias: RollingUpdate (default, sin downtime) o Recreate (mata todo primero).
+maxSurge = Pods extra permitidos durante el rollout. maxUnavailable = Pods menos permitidos.
+Sin readiness probe, el rollout puede causar downtime aunque sea "rolling".
+Con esto vimos la mecánica. En la siguiente sub-parte abrimos el otro pegamento del modelo: las labels y los selectors. Sin ellas, ni Deployment, ni Service, ni nada.

@@ -1,0 +1,119 @@
+¿Qué es un Pod?
+Parte 5 de 10
+CNI: cómo el Pod obtiene su IP
+Un plugin CNI no es un servicio ni un daemon. Es un binario ejecutable. Cuando el runtime necesita configurar la red de un Pod, simplemente corre ese binario, le pasa el contexto por variables de entorno y un JSON por stdin, y espera el resultado en stdout. Sin servidor, sin socket, sin protocolo largo — solo un proceso que arranca, configura la red y termina.
+Eso es lo que define el spec de CNI.
+El protocolo
+El runtime invoca el plugin con estas variables de entorno y un JSON por stdin:
+CNI_COMMAND=ADD
+CNI_CONTAINERID=<pod-sandbox-id>
+CNI_NETNS=/proc/<pause-pid>/ns/net # el network namespace del pause
+CNI_IFNAME=eth0 # nombre de la interfaz dentro del Pod
+CNI_PATH=/opt/cni/bin # donde están los binarios de plugins
+# stdin:
+{
+"cniVersion": "1.0.0",
+"name": "k8s-pod-network",
+"type": "calico",
+...
+}
+El plugin lee esas variables, entra al namespace de red del pause, crea las interfaces, y responde con un JSON en stdout que incluye la IP asignada:
+{
+"ips": [{ "address": "10.244.1.42/24", "gateway": "10.244.1.1" }],
+"interfaces": [{ "name": "eth0", "sandbox": "/proc/12345/ns/net" }]
+}
+Lo que pasa a nivel de kernel: el veth pair
+Un veth (virtual ethernet) es un par de interfaces de red virtuales conectadas entre sí — lo que entra por una sale por la otra. El plugin crea el par en estos pasos:
+Crea el par: cali... (Calico) o veth... (Flannel/CNI bridge) en el host y eth0 en el namespace del pause
+Asigna la IP del Pod a eth0
+Mueve un extremo del par al namespace de red del pause
+El otro extremo queda en el host. Qué se hace con él depende del plugin: Calico no usa bridge — agrega una route /32 al kernel del host hacia ese veth; Flannel y el plugin bridge sí enganchan el extremo del host a un bridge Linux como cni0
+En un cluster Calico (lo que probablemente tengas en producción) los nombres de las interfaces empiezan con cali y la MAC es siempre ee:ee:ee:ee:ee:ee — un sentinel obvio. En el nodo donde corren los Pods:
+# Listar los veth pairs activos
+ip link show type veth
+# 7: cali5711bd63df3@if3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450 ...
+# link/ether ee:ee:ee:ee:ee:ee brd ff:ff:ff:ff:ff:ff
+# link-netns cni-bd440fff-41f5-f359-dafd-9f642711c2ac
+# 8: cali55c35b9056b@if3: ... link-netns cni-5dcc03a5-...
+# 9: calic440f455693@if3: ... link-netns cni-332eed28-...
+# 12: cali12d4a061371@if3: ... link-netns cni-05cf3530-...
+Cada cali* es el extremo host de un veth pair; el otro extremo (eth0) vive en el netns del Pod referenciado por link-netns cni-.... La cuenta da: cuatro veth en este nodo = cuatro Pods con red.
+Trampita: kubectl exec nginx -- ip addr falla. La imagen oficial de nginx no trae iproute2:
+kubectl exec nginx -- ip addr show eth0
+# error: exec failed: "ip": executable file not found in $PATH
+Soluciones: usar una imagen con tools (busybox, alpine), o entrar al netns desde el host con nsenter (lo cubrimos abajo). Para una mirada rápida desde la red del Pod:
+kubectl run busybox --image=busybox --command -- sleep 600
+kubectl exec busybox -- ip addr show eth0
+# 3: eth0@if12: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450
+# link/ether 02:6f:a0:c8:df:19 brd ff:ff:ff:ff:ff:ff
+# inet 192.168.1.7/32 scope global eth0
+El @if12 dentro del Pod y el link-netns cni-... del lado host son punteros recíprocos — el kernel los usa para indicar "este veth está pareado con la interfaz 12 en aquel namespace". El MTU 1450 (en lugar de 1500) refleja el overhead de VXLAN.
+A partir de ese momento, cualquier paquete que salga del Pod por eth0 llega al host por el cali..., y viceversa. Todos los contenedores del Pod comparten esa misma IP porque todos viven en el mismo network namespace, que tiene una sola eth0.
+Same-node vs cross-node: la ruta cambia
+Cómo el host enruta tráfico hacia una IP de Pod depende de si el Pod corre en este nodo o en otro:
+# Caso A: el Pod corre en este mismo nodo
+# El kernel tiene una /32 directa al cali del Pod
+ip route get 192.168.1.7 # ejecutado en node01 donde corre busybox
+# 192.168.1.7 dev cali12d4a061371 src 172.30.2.2 uid 0
+# ↑ ruta /32 al veth — sin bridge
+# ↑ src = IP primaria del host (eth0 del nodo)
+# Caso B: el Pod corre en OTRO nodo (cross-node)
+# El paquete sale por flannel.1, el túnel VXLAN
+ip route get 192.168.1.7 # ejecutado en controlplane (busybox vive en node01)
+# 192.168.1.7 via 192.168.1.0 dev flannel.1 src 192.168.0.0 uid 0
+# ↑ flannel encapsula y manda al otro nodo
+# ↑ src = IP del nodo en el Pod CIDR
+Notá la diferencia en src: en mismo-nodo el kernel responde con la IP primaria del host (172.30.2.2, la real eth0 del nodo); cross-node usa una IP dentro del Pod CIDR (192.168.0.0, asignada al endpoint local del túnel flannel.1). Es la huella de que el paquete cross-node no sale por la red física del nodo sino encapsulado en un VXLAN cuyo origen aparente es el endpoint del túnel.
+Esto te dice algo concreto sobre la arquitectura del cluster: no es Calico puro. Es canal — Calico para policy enforcement, Flannel para el data plane (VXLAN). Es el canal-fvthj que viste en la parte 4. En Calico puro con BGP el cross-node iría por una ruta directa al peer, no por un túnel.
+Para inspeccionar la red del Pod sin pasar por kubectl exec (útil cuando el container no tiene ip instalado), entrá al netns desde el host:
+# Obtener el PID del pause.
+# OJO: 'inspectp' (con p) para sandboxes; 'inspect' es para containers
+# y devolverá NotFound si le pasas un pod ID.
+PAUSE_PID=$(crictl inspectp $(crictl pods --name nginx -q) | jq '.info.pid')
+echo ${PAUSE_PID}
+# 67623 ← PID real del proceso /pause en el host
+# Ejecutar comandos del host dentro del netns del Pod
+sudo nsenter -t ${PAUSE_PID} --net ip addr
+# 1: lo: <LOOPBACK,UP> mtu 65536 ...
+# 3: eth0@if9: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1450
+# link/ether 9e:8d:bc:bf:c9:81 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+# inet 192.168.1.4/32 scope global eth0
+sudo nsenter -t ${PAUSE_PID} --net ss -tlnp
+# State Local Address:Port Process
+# LISTEN 0.0.0.0:80 users:(("nginx",pid=67656,fd=6),("nginx",pid=67623,fd=6))
+# LISTEN [::]:80 users:(("nginx",pid=67656,fd=7),("nginx",pid=67623,fd=7))
+Lo que ves en el output del ss son los procesos nginx de la app — el pause no escucha en ningún puerto (es solo el dueño del namespace, no atiende tráfico). De hecho, si repites el ejercicio con un Pod de busybox que solo duerme, ss -tlnp sale vacío: el namespace existe pero no hay nada escuchando.
+Cómo containerd llama al CNI
+containerd usa la librería go-cni que carga la configuración desde /etc/cni/net.d/ y ejecuta los binarios desde /opt/cni/bin/. En sandbox_run.go la llamada ocurre en setupPodNetwork() justo después de que el sandbox está creado:
+# Los archivos relevantes en el nodo
+ls /etc/cni/net.d/
+# 10-canal.conflist ← config CNI activa: Canal (Calico + Flannel)
+# 87-podman-bridge.conflist ← bridge propio de podman, no lo usa k8s
+# calico-kubeconfig ← kubeconfig que los pods de Calico usan
+# para hablar con el API server
+ls -lh /opt/cni/bin/
+# total 257M
+# -rwsr-xr-x 56M Apr 24 20:18 calico ← setuid: necesita CAP_*
+# -rwsr-xr-x 56M Apr 24 20:18 calico-ipam ← setuid: gestiona IPs
+# -rwsr-xr-x 56M Apr 24 20:18 install ← setuid: helper de install
+# -rwxr-xr-x 5.5M Aug 28 2025 bridge ← reference plugin
+# -rwxr-xr-x 3.1M Apr 24 20:18 host-local ← reference IPAM
+# -rwxr-xr-x 3.2M Apr 24 20:18 loopback
+# -rwxr-xr-x 2.4M Apr 24 20:18 flannel ← Calico instala flannel
+# -rwxr-xr-x 3.7M Apr 24 20:18 bandwidth ← traffic shaping
+# -rwxr-xr-x 3.6M Aug 28 2025 portmap ← hostPort →iptables
+# ... 17 binarios más (dhcp, dummy, firewall, host-device, ipvlan, macvlan,
+# ptp, sbr, static, tap, tuning, vlan, vrf, ...)
+Tres detalles operativos que vale la pena leer:
+El setuid bit (-rwsr-xr-x) en calico, calico-ipam y install: estos binarios necesitan capabilities elevadas (CAP_NET_ADMIN, CAP_SYS_ADMIN) para crear interfaces, modificar tablas de routing y entrar a netns. El runtime los invoca como root, pero el setuid los blindea ante invocaciones que perdieron privilegios en el camino.
+56 MB por binario en calico*: son binarios Go compilados estáticamente, con todas las dependencias vendoreadas (libcalico, gobgp, etcd client, etc.). Comparalos con los reference plugins de containernetworking/plugins que pesan 3-5 MB porque hacen mucho menos.
+flannel está presente aunque corramos Calico: el chart oficial de Calico (alojado en charts/tigera-operator) instala todos los binarios CNI estándar para soportar el modo Calico-on-Flannel (canal) y configuraciones híbridas. Cuál se invoca lo decide el conflist activo (10-canal.conflist en este cluster).
+Los plugins de referencia
+El repositorio containernetworking/plugins mantiene las implementaciones de referencia, agrupadas en cuatro categorías: Main (creación de interfaces — bridge, ipvlan, macvlan, ptp, vlan, host-device, dummy, loopback), Windows (win-bridge, win-overlay), IPAM (asignación de IPs — host-local, dhcp, static) y Meta (tuning, portmap, bandwidth, sbr, firewall).
+Mostramos una muestra mínima — los cuatro que aparecen en cualquier configuración básica de Kubernetes. La lista completa con descripciones está en el README del repo:
+Plugin Tipo Qué hace
+bridge Main Conecta el Pod a un bridge Linux en el host
+loopback Main Configura la interfaz lo dentro del Pod
+host-local IPAM Asigna IPs desde un rango por archivo local
+dhcp IPAM Obtiene IP via DHCP
+Calico, Flannel y Cilium son plugins más complejos que construyen sobre estos mismos principios — siguen el mismo protocolo de variables de entorno y stdin/stdout, pero con lógica adicional para routing entre nodos, políticas de red y observabilidad.

@@ -1,0 +1,47 @@
+Kubernetes para principiantes
+Capítulo 1 de 21 · Sección 2 de 7
+El plano de control: apiserver, etcd, scheduler, controller-manager
+En la parte anterior dijimos que el control plane no es una entidad mágica: son cuatro procesos. Vamos a ver quiénes son y por qué están separados — porque ese "por qué" es la mitad del entendimiento.
+Los cuatro procesos del control plane son:
+kube-apiserver — la puerta de entrada.
+etcd — la memoria.
+kube-scheduler — el asignador.
+kube-controller-manager — los vigilantes.
+Y una regla que cambia todo: ninguno de esos procesos se habla directamente con los demás excepto el apiserver. Todo pasa por el apiserver. Todo. Si el scheduler quiere saber qué Pods no tienen nodo asignado, no lee etcd — le pregunta al apiserver. Si el controller-manager quiere crear un Pod, no lo escribe en etcd — le dice al apiserver que lo haga. Esta regla, que parece burocrática, es la que mantiene el sistema consistente.
+kube-apiserver: la puerta
+El kube-apiserver es un servidor HTTP. Literalmente. Expone una REST API sobre TLS en el puerto 6443. Cuando ejecutas kubectl get pods, kubectl le hace un GET al apiserver. Cuando aplicas un YAML, le hace un POST o un PUT.
+Su trabajo real no es solo "recibir peticiones". Es:
+Autenticar quién eres (token, cert, OIDC).
+Autorizar qué puedes hacer (normalmente vía RBAC — lo vemos en el capítulo 14).
+Validar que el objeto que mandas sea sintácticamente correcto.
+Pasar por admission controllers que pueden modificar o rechazar el objeto.
+Persistir en etcd si todo pasa los filtros.
+Si el apiserver se cae, el cluster no "se rompe" — los Pods que ya corren siguen corriendo. Pero no puedes ver su estado, ni crear nada nuevo, ni cambiar nada. Es como si un restaurante se quedara sin meseros: los comensales que ya tienen su comida pueden seguir comiendo tranquilos, pero nadie puede pedir algo nuevo, cambiar su orden, ni preguntarle a la cocina cómo van los platillos.
+etcd: la memoria
+Aunque etcd técnicamente no es un proceso "de Kubernetes" (es un proyecto CNCF independiente), en la práctica es parte del control plane. Es la base de datos key-value donde vive absolutamente todo el estado del cluster: cada Pod, cada Deployment, cada Secret, cada ConfigMap. Si borras etcd, borras el cluster.
+Dos cosas lo hacen especial:
+Usa el algoritmo Raft para consenso. Eso significa que puede correr en 3 o 5 nodos y sobrevivir si uno se cae — siempre que la mayoría siga viva.
+Soporta un modelo watch: los clientes pueden suscribirse a cambios en una clave y recibir notificaciones cuando cambie. Kubernetes usa esto sin parar.
+Le dedicamos una sub-parte completa más adelante porque etcd merece atención. Por ahora: piénsalo como la única fuente de verdad del cluster, accesible solo a través del apiserver.
+kube-scheduler: el asignador
+El scheduler tiene un trabajo muy específico: asignar Pods a nodos. Nada más.
+Cuando creas un Pod, el apiserver lo guarda en etcd con un campo spec.nodeName vacío. El scheduler, que está vigilando (via watch) los Pods sin nodo asignado, lo ve, y decide: "este Pod debería correr en el nodo X". Toma esa decisión y le pide al apiserver que actualice el Pod con spec.nodeName: X.
+Ojo con este detalle: el scheduler no arranca el Pod. Solo decide dónde va. Quien lo arranca es el kubelet del nodo elegido, y lo explicamos en la siguiente sub-parte.
+La decisión del scheduler tiene dos fases: filtering (qué nodos son válidos — tienen recursos, cumplen con taints, afinidades, etc.) y scoring (de los válidos, cuál es el mejor). Lo profundizamos en el capítulo 8.
+kube-controller-manager: los vigilantes
+Este componente es realmente un binario que, por dentro, corre muchos controllers distintos: el Deployment controller, el ReplicaSet controller, el Node controller, el Job controller, y varios más. Se juntan en un solo proceso por eficiencia, pero cada uno es independiente.
+Todos los controllers hacen lo mismo a alto nivel: un loop de reconciliación.
+while True:
+actual = api.get_current_state()
+desired = api.get_desired_state()
+if actual != desired:
+api.apply_diff(desired - actual)
+Pseudocódigo ilustrativo. El patrón formal está descrito en la documentación oficial: kubernetes.io — Controllers.
+El ReplicaSet controller, por ejemplo, vigila ReplicaSets. Si dices "quiero 3 réplicas" y solo hay 2 Pods, crea un tercero. Si hay 4, mata uno. Y sigue vigilando, para siempre.
+Esta es la esencia declarativa de Kubernetes: no ordenas "crea este Pod"; declaras "quiero este estado", y un controller lo mantiene así.
+¿Por qué están separados?
+Podrías meter todos estos procesos en un solo binario. ¿Por qué no lo hacen? Tres razones:
+Aislamiento de fallos: si el scheduler entra en un bug que lo bloquea, el apiserver sigue respondiendo. Puedes seguir leyendo el estado mientras diagnosticas.
+Escalabilidad independiente: el apiserver tiene cargas muy distintas a las del scheduler. Separarlos permite afinarlos por separado.
+Claridad del modelo: el apiserver es la única fuente de verdad de la comunicación. Los demás componentes son clientes del apiserver, exactamente igual que kubectl. Esa simetría simplifica todo.
+En el siguiente paso bajamos al otro lado del cluster: los nodos worker, donde finalmente corren tus contenedores.

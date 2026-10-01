@@ -1,0 +1,53 @@
+Kubernetes para principiantes
+Capítulo 2 de 21 · Sección 6 de 7
+kubectl, --dry-run y server-side apply
+Hasta aquí hemos hablado del modelo declarativo desde la óptica del cluster. Ahora miramos el otro lado: el tuyo, el del cliente. Cuando escribes kubectl apply -f deploy.yaml, ¿qué hace exactamente esa herramienta? ¿Cuándo usar apply vs create vs replace? ¿Y qué demonios es server-side apply?
+Entender esto no es detalle trivial: es lo que separa usar Kubernetes imperativamente (cada comando es una acción) de usarlo declarativamente de verdad (cada apply es una re-declaración del estado deseado).
+kubectl es un cliente HTTP
+Vale la pena repetirlo: kubectl no tiene magia. Es un cliente REST que habla con el kube-apiserver. Cada comando se traduce a una llamada HTTP. Puedes verlo con:
+kubectl apply -f deploy.yaml -v=8 2>&1 | grep -E "GET|POST|PATCH|PUT"
+Verás que un apply suele traducirse a un GET (para ver si el objeto existe) seguido de un PATCH (con los cambios). Un create es un POST. Un delete, un DELETE. Así de directo.
+apply vs create vs replace
+Los tres cambian el estado del cluster, pero con semánticas distintas:
+create — "crea este objeto nuevo. Si ya existe, falla." Es imperativo: asume que no había nada antes.
+replace — "reemplaza este objeto por el que te doy. Si no existe, falla (a menos que uses --force)." También imperativo: requiere el objeto previo para funcionar idempotentemente.
+apply — "haz que el cluster coincida con este YAML. Si el objeto no existe, créalo. Si existe, actualízalo, respetando los campos que otros clientes hayan tocado." Es el único realmente declarativo.
+apply es el que deberías usar el 99% del tiempo. create y replace están ahí por compatibilidad y scripts viejos, pero no son el modo nativo del sistema.
+Client-side apply: cómo funcionaba originalmente
+La implementación histórica de apply vive en el cliente. El flujo es:
+kubectl guarda tu YAML como una annotation (kubectl.kubernetes.io/last-applied-configuration) en el objeto.
+La próxima vez que aplicas, calcula un diff entre: tu YAML actual, la last-applied-configuration guardada, y el estado vivo del objeto.
+Construye un strategic merge patch y lo envía al apiserver.
+Funciona, pero tiene problemas serios cuando varios "clientes" (humanos, Argo CD, Helm, operators) tocan el mismo objeto. Cada uno tenía su propia última configuración guardada y se pisaban los cambios sin saberlo.
+Server-side apply: la evolución
+Para resolver eso, Kubernetes introdujo server-side apply (SSA), estable desde 1.22. La diferencia: el diff y el merge los hace el apiserver, no el cliente.
+La idea clave es field ownership. Cada campo de un objeto tiene dueño — el último cliente que lo escribió. Cuando otro cliente intenta cambiar un campo del que no es dueño, hay un conflicto explícito. Tú decides si hacer --force-conflicts (tomar la propiedad) o ajustar tu manifest.
+Ejemplo:
+kubectl apply --server-side -f deploy.yaml
+Si un operator ya había escrito spec.replicas (porque gestiona autoscaling) y tú aplicas un YAML con replicas: 3, el apiserver te va a decir: "hay un conflicto en spec.replicas, cuyo dueño es hpa-controller". No se sobrescribe a ciegas.
+Esto importa mucho en entornos complejos donde GitOps y operators conviven. SSA es el futuro; client-side apply existe por compatibilidad pero se recomienda migrar.
+--dry-run: ensayar sin aplicar
+kubectl soporta tres modos de dry-run:
+--dry-run=none (default) — aplica de verdad.
+--dry-run=client — valida localmente: la estructura del YAML, la sintaxis, parsing. No manda nada al apiserver.
+--dry-run=server — envía la petición al apiserver, que corre toda la cadena (auth, admission, validación, mutating webhooks) pero no persiste en etcd. Devuelve el objeto que se habría guardado.
+La segunda es rápida pero superficial. La tercera es poderosa: te dice exactamente qué habría pasado, incluyendo mutaciones que añaden admission controllers, valores por defecto que rellenaría el apiserver, y si un webhook rechazaría tu objeto.
+kubectl apply -f deploy.yaml --dry-run=server -o yaml
+Ese comando es mi favorito para depurar manifests: muestra el objeto exactamente como quedaría persistido, revelando cosas que tu YAML no decía explícitamente.
+diff: comparar antes de aplicar
+Hermano de --dry-run=server:
+kubectl diff -f deploy.yaml
+Muestra exactamente qué campos cambiarían si aplicaras. Útil para revisar qué va a pasar antes de mover algo en producción, y para integrarlo en pipelines de CI.
+Por qué esto importa para el modelo declarativo
+El modelo declarativo no se agota en "escribí el YAML correcto". También exige que:
+Cada aplicación sea idempotente — lo mismo dos veces no hace dos cosas distintas.
+Los conflictos sean explícitos — dos fuentes de verdad no se pisan en silencio.
+Puedas previsualizar el efecto antes de ejecutarlo.
+apply + server-side apply + --dry-run=server + diff son las herramientas que hacen realidad esos principios a nivel operacional. GitOps (Argo CD, Flux) se basa exactamente en este modelo, aplicando el YAML de git repetidamente y dejando que el cluster converja.
+Claves para la KCNA
+kubectl apply es la forma declarativa; create y replace son imperativos.
+Client-side apply usa la annotation last-applied-configuration.
+Server-side apply mueve el merge al apiserver y añade field ownership.
+--dry-run=server ejecuta toda la validación sin persistir.
+kubectl diff compara tu YAML con el estado vivo.
+Llegamos al final del capítulo. En la siguiente sub-parte cerramos con un resumen que junta todo y te da el mapa que vas a llevar al capítulo 3 (Pods).

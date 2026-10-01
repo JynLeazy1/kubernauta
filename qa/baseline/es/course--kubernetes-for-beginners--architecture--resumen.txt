@@ -1,0 +1,36 @@
+Kubernetes para principiantes
+Capítulo 1 de 21 · Sección 7 de 7
+Resumen: el mapa mental completo
+Cerramos el capítulo. Si hiciste el recorrido completo, ahora tienes una imagen que no es un diagrama genérico de internet — es un modelo mental de procesos, conexiones y loops. Vamos a recapitular.
+El cluster, visto en una sola página
+Un cluster de Kubernetes son máquinas Linux corriendo procesos específicos. Nada más, nada menos.
+En el control plane corren cuatro procesos:
+kube-apiserver — la única puerta. Autentica, autoriza, valida, persiste en etcd.
+etcd — la memoria. Key-value store distribuido con Raft.
+kube-scheduler — el asignador. Decide en qué nodo corre cada Pod.
+kube-controller-manager — los loops de reconciliación (Deployment, ReplicaSet, Node, Job, …).
+Cuando el cluster vive en una nube, se suma el cloud-controller-manager, que habla con la API del proveedor.
+En cada worker node corren tres:
+kubelet — el agente local. Reconcilia los Pods asignados a su nodo.
+Un container runtime (containerd, CRI-O) — crea los contenedores vía CRI.
+kube-proxy — programa las reglas de red para que las Services funcionen.
+La regla que lo ata todo
+Solo el kube-apiserver habla con etcd. Todos los demás componentes son clientes del apiserver. Se suscriben a cambios (watch) y reaccionan. Nadie le habla directamente a nadie: la coordinación pasa por etcd, expuesta a través del apiserver.
+Esa regla es la que permite que el sistema escale, que sea asíncrono, que sobreviva a fallos. Tenla presente en cada capítulo que viene: cada vez que veas un nuevo tipo de objeto (StatefulSet, Ingress, Job, …) el patrón es el mismo. Alguien declara, un controller reconcilia, el apiserver arbitra.
+El flujo, comprimido
+Un kubectl apply dispara esta cadena:
+apiserver valida y escribe a etcd.
+Controllers ven el cambio y crean objetos derivados (ReplicaSet, Pods).
+Scheduler asigna nodeName a cada Pod.
+kubelet del nodo elegido pide al runtime que cree los contenedores.
+Runtime levanta pause + containers con namespaces y cgroups.
+kube-proxy programa las reglas de red si hay Services.
+En cada paso, lo único que pasa es: leer estado, compararlo con el deseado, escribir la diferencia. Un loop de reconciliación, repetido en distintas capas.
+Alta disponibilidad, en una frase
+En producción nunca corres un control plane de una sola máquina. 3 o 5 nodos, apiserver stateless detrás de un LB, etcd con quórum, scheduler y controller-manager con leader election. Los workers sobreviven a caídas del control plane.
+Qué viene
+Este capítulo fue la topografía del cluster: qué corre dónde y por qué. El capítulo 2 baja una capa: cómo funciona la API de Kubernetes y qué significa exactamente el modelo declarativo del que tanto hemos hablado. De ahí en adelante, cada capítulo abre uno de los objetos (Pods, Deployments, Services, …) con la misma lente: qué declara, qué controller reconcilia, qué pasa en el kernel.
+Para la KCNA
+Si tuvieras que llevarte una sola cosa al examen, que sea esto:
+Kubernetes no es magia. Es un apiserver delante de una base de datos, con un ejército de controllers reaccionando a cambios, y un kubelet por nodo que traduce objetos a procesos Linux.
+Todo lo demás son detalles de implementación.

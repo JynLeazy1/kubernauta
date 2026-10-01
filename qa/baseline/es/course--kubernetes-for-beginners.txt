@@ -1,0 +1,75 @@
+Curso · 21 capítulosEn desarrollo
+Kubernetes para principiantes
+Los conceptos fundamentales para la KCNA y más allá
+Curso completo orientado a la certificación KCNA. Cubre los cinco dominios oficiales — fundamentos de Kubernetes, orquestación de contenedores, ecosistema cloud native, observabilidad y entrega de aplicaciones — con el mismo estilo profundo del resto de la plataforma: entender cada pieza desde adentro, no solo recitar definiciones.
+kubernetes
+kcna
+cloud-native
+cncf
+containers
+beginners
+Contenido
+01
+Arquitectura de Kubernetes: plano de control, nodos y el flujo de una petición
+→
+02
+La API de Kubernetes y el modelo declarativo
+→
+03
+Entendiendo los Pods de Kubernetes
+→
+04
+ReplicaSets y Deployments: mantener tu app viva
+→
+05
+ConfigMaps y Secrets: configuración en Kubernetes
+→
+06
+Namespaces: aislamiento y organización de recursos
+→
+07
+Runtimes y la CRI: del YAML al proceso en el kernel
+→
+08
+Scheduling: cómo Kubernetes decide dónde corre un Pod
+→
+09
+Services en Kubernetes: ClusterIP, NodePort y LoadBalancer
+→
+10
+Ingress y DNS en el cluster
+→
+11
+Rolling Updates y estrategias de Deployment
+→
+12
+Persistent Volumes y PVCs explicados
+→
+13
+StatefulSets, DaemonSets y Jobs
+→
+14
+Seguridad básica: RBAC, ServiceAccounts y Pod Security
+→
+15
+Autoscaling: HPA, VPA y Cluster Autoscaler
+→
+16
+El ecosistema Cloud Native: CNCF, proyectos y principios
+→
+17
+Cloud Native Community and Collaboration
+→
+18
+Logs, métricas y traces: los tres pilares
+→
+19
+Prometheus y el modelo pull
+→
+20
+GitOps y CI/CD en Kubernetes
+→
+21
+Cómo prepararte para el examen KCNA
+→
+Empezar el curso →

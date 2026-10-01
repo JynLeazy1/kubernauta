@@ -1,0 +1,75 @@
+Course · 21 chaptersWork in progress
+Kubernetes for Beginners
+The core concepts for the KCNA and beyond
+A full course aimed at the KCNA certification. Covers the five official domains — Kubernetes fundamentals, container orchestration, cloud native ecosystem, observability, and application delivery — in the same deep style as the rest of the platform: understanding every piece from the inside out, not just reciting definitions.
+kubernetes
+kcna
+cloud-native
+cncf
+containers
+beginners
+Contents
+01
+Kubernetes Architecture: Control Plane, Nodes, and the Request Flow
+→
+02
+The Kubernetes API and the Declarative Model
+→
+03
+Understanding Kubernetes Pods
+→
+04
+ReplicaSets and Deployments: Keeping Your App Alive
+→
+05
+ConfigMaps and Secrets: Configuration in Kubernetes
+→
+06
+Namespaces: Isolation and Resource Organization
+→
+07
+Runtimes and the CRI: From YAML to Kernel Process
+→
+08
+Scheduling: How Kubernetes Decides Where a Pod Runs
+→
+09
+Kubernetes Services: ClusterIP, NodePort, and LoadBalancer
+→
+10
+Ingress and Cluster DNS
+→
+11
+Rolling Updates and Deployment Strategies
+→
+12
+Persistent Volumes and PVCs Explained
+→
+13
+StatefulSets, DaemonSets, and Jobs
+→
+14
+Basic Security: RBAC, ServiceAccounts, and Pod Security
+→
+15
+Autoscaling: HPA, VPA, and Cluster Autoscaler
+→
+16
+The Cloud Native Ecosystem: CNCF, Projects, and Principles
+→
+17
+Cloud Native Community and Collaboration
+→
+18
+Logs, Metrics, and Traces: The Three Pillars
+→
+19
+Prometheus and the Pull Model
+→
+20
+GitOps and CI/CD on Kubernetes
+→
+21
+How to Prepare for the KCNA Exam
+→
+Start the course →

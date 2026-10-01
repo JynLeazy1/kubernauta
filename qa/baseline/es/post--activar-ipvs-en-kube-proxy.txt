@@ -1,0 +1,75 @@
+12 de febrero de 2026
+Cómo activar el modo IPVS en kube-proxy
+kube-proxy
+ipvs
+networking
+performance
+Deprecado
+IPVS fue deprecado en Kubernetes 1.35 y puede ser removido en una versión futura. Para instalaciones nuevas, el modo recomendado es nftables (GA desde 1.33, requiere Linux 5.13+). Este post documenta el proceso de activación para clusters existentes que necesiten migrar gradualmente.
+Por qué considerar IPVS
+En el modo iptables, cada paquete recorre las reglas de la chain KUBE-SERVICES linealmente hasta encontrar la que coincide. Con diez Services eso es trivial. Con diez mil, cada conexión nueva evalúa miles de reglas antes de llegar al DNAT correcto. IPVS (IP Virtual Server) es un módulo del kernel diseñado específicamente para load balancing: usa una tabla hash donde la búsqueda es O(1) independientemente de cuántos Services existan.
+Prerequisitos: módulos del kernel
+IPVS requiere cuatro módulos del kernel. Verifica que estén cargados en todos los nodos antes de cambiar la configuración:
+lsmod | grep -E "^ip_vs"
+# ip_vs_sh 12288 0
+# ip_vs_wrr 12288 0
+# ip_vs_rr 12288 0
+# ip_vs 221184 6 ip_vs_rr,ip_vs_sh,ip_vs_wrr
+Si no están cargados, hay que cargar cada módulo por separado — modprobe no garantiza cargar múltiples módulos en un solo comando (créeme, lo intenté):
+sudo modprobe ip_vs
+sudo modprobe ip_vs_rr
+sudo modprobe ip_vs_wrr
+sudo modprobe ip_vs_sh
+lsmod | grep -E "^ip_vs"
+# ip_vs_sh 12288 0
+# ip_vs_wrr 12288 0
+# ip_vs_rr 12288 0
+# ip_vs 221184 6 ip_vs_rr,ip_vs_sh,ip_vs_wrr
+# Persistir entre reinicios
+sudo cat >> /etc/modules-load.d/ipvs.conf << EOF
+ip_vs
+ip_vs_rr
+ip_vs_wrr
+ip_vs_sh
+EOF
+También necesitas el módulo nf_conntrack, que suele estar cargado por defecto, y el binario ipvsadm para inspección:
+sudo apt-get install -y ipvsadm
+Editar el ConfigMap de kube-proxy
+El modo se configura en el campo mode del ConfigMap kube-proxy en el namespace kube-system. Editalo directamente:
+kubectl edit configmap kube-proxy -n kube-system
+Busca la sección mode y cámbiala de string vacío a "ipvs". También activa strictARP: true en la sección ipvs — es necesario para que el tráfico no se filtre por ARP en nodos con múltiples interfaces:
+mode: "ipvs"
+ipvs:
+scheduler: ""
+strictARP: true
+syncPeriod: 0s
+Reiniciar los pods de kube-proxy
+kube-proxy es un DaemonSet — no se recarga solo con el cambio del ConfigMap. Hay que eliminar los pods para que se recreen con la nueva configuración:
+kubectl rollout restart daemonset kube-proxy -n kube-system
+kubectl rollout status daemonset kube-proxy -n kube-system
+# Waiting for daemon set "kube-proxy" rollout to finish: 0 out of 2 new pods have been updated...
+# daemon set "kube-proxy" successfully rolled out
+Verificar el cambio
+La confirmación definitiva es ipvsadm -Ln — si muestra virtual servers, IPVS está activo:
+sudo ipvsadm -Ln
+# IP Virtual Server version 1.2.1 (size=4096)
+# Prot LocalAddress:Port Scheduler Flags
+# -> RemoteAddress:Port Forward Weight ActiveConn InActConn
+# TCP 10.96.0.1:443 rr
+# -> 172.30.1.2:6443 Masq 1 1 6
+# TCP 10.96.0.10:53 rr
+# -> 192.168.1.2:53 Masq 1 0 0
+# -> 192.168.1.3:53 Masq 1 0 0
+# TCP 10.96.0.10:9153 rr
+# -> 192.168.1.2:9153 Masq 1 0 0
+# -> 192.168.1.3:9153 Masq 1 0 0
+# TCP 10.110.171.208:80 rr
+# -> 192.168.1.4:80 Masq 1 0 0
+# -> 192.168.1.5:80 Masq 1 0 0
+# -> 192.168.1.6:80 Masq 1 0 0
+# UDP 10.96.0.10:53 rr
+# -> 192.168.1.2:53 Masq 1 0 0
+# -> 192.168.1.3:53 Masq 1 0 0
+Cada Service aparece como un virtual server con su ClusterIP y puerto. Debajo, cada Pod backend aparece como un real server con su IP y el scheduler asignado — rr (round-robin) por defecto. El cluster de ejemplo tiene cuatro Services: el API server de Kubernetes en 10.96.0.1:443, CoreDNS en 10.96.0.10 con entradas TCP y UDP para el puerto 53, el endpoint de métricas de CoreDNS en el 9153, y el Service de nginx en 10.110.171.208:80 con sus tres Pods backend. Puedes cambiar el scheduler a lc (least connections) o sh (source hash) editando el campo scheduler en el ConfigMap y haciendo otro rollout restart.
+Revertir si algo falla
+Si encuentras problemas, revertir es el proceso inverso: edita el ConfigMap, pones mode: "" de nuevo, y haces rollout restart del DaemonSet. Las reglas iptables se regeneran automáticamente y las entradas IPVS desaparecen.

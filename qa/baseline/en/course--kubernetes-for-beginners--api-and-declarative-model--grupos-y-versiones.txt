@@ -1,0 +1,78 @@
+Kubernetes for Beginners
+Chapter 2 of 21 · Section 3 of 7
+API Groups, Versions, and the Anatomy of an Object
+Open any Kubernetes YAML and the first thing you see is two lines:
+apiVersion: apps/v1
+kind: Deployment
+Those two lines are the object's "address" inside the API: they say which group and version it belongs to and what type it is. Understanding them clears up a huge amount of confusion — not knowing why it's sometimes apps/v1, sometimes just v1, and sometimes something like networking.k8s.io/v1.
+API groups
+The Kubernetes API is organized in groups. Each group bundles related types. This lets parts of the API evolve independently without breaking the others.
+There are two big categories:
+The core group (also called legacy) — contains the oldest, most fundamental types: Pod, Service, Namespace, ConfigMap, Secret, Node, PersistentVolume, etc. Its apiVersion has no prefix: just v1.
+Named groups — everything else. Each group has a name like apps, batch, networking.k8s.io, rbac.authorization.k8s.io. Its apiVersion is written group/version, for instance apps/v1.
+Some everyday examples:
+apiVersion: v1 # core
+kind: Pod
+apiVersion: apps/v1 # apps group
+kind: Deployment
+apiVersion: batch/v1 # batch group
+kind: Job
+apiVersion: networking.k8s.io/v1 # networking.k8s.io group
+kind: NetworkPolicy
+apiVersion: rbac.authorization.k8s.io/v1 # RBAC group
+kind: Role
+To see all available groups in your cluster:
+kubectl api-versions
+And all resources (with their groups):
+kubectl api-resources
+The api-resources output includes a short name (po for Pods, deploy for Deployments), whether the resource is namespaced, and which group it belongs to. One of the most useful outputs to orient yourself.
+Versions: alpha, beta, stable
+Within a group, a type can exist in several versions at once. The version suffix signals maturity:
+v1 — stable / GA. Forward-compatible for the life of the major version. The version you should use in production.
+v1beta1, v1beta2 — beta. Reasonably stable, well tested, but the API can change with deprecation. Enabled by default.
+v1alpha1 — alpha. Experimental. The API can change without notice, bugs are possible. Usually disabled by default and must be turned on with feature flags.
+Practical rule: if a type has a stable version (v1), use it. Alpha versions only make sense when you need a brand-new feature or are building something experimental.
+How an API gets promoted
+Typical life of a Kubernetes API:
+Alpha (v1alpha1, v1alpha2…): feature-flag gated, may change or disappear.
+Beta (v1beta1, v1beta2…): enabled by default, compatible within beta but may change between betas.
+Stable (v1): long-term compatibility commitment.
+When an API is promoted, the older versions become deprecated and are eventually removed. That's why you sometimes see warnings like "apiVersion extensions/v1beta1 is deprecated" — the type still works, but there's already a stable version you should use instead.
+Warning
+Kubernetes upgrades can remove old APIs. If your YAML uses apiVersion: extensions/v1beta1 for a Deployment (removed in 1.16), the upgrade will break it. Before upgrading a cluster, check with tools like kubectl deprecations or pluto to find deprecated APIs.
+The full anatomy of an object
+We've seen spec, status, and metadata. Together, with apiVersion and kind, they form the full structure:
+apiVersion: apps/v1 # group and version
+kind: Deployment # type
+metadata: # identity and organization
+name: nginx
+namespace: default
+labels:
+app: nginx
+annotations:
+deployment.kubernetes.io/revision: "1"
+spec: # desired state
+replicas: 3
+selector:
+matchLabels:
+app: nginx
+template:
+metadata:
+labels:
+app: nginx
+spec:
+containers:
+- name: nginx
+image: nginx:1.25
+status: # observed state (don't write it)
+replicas: 3
+readyReplicas: 3
+availableReplicas: 3
+Those five top-level fields — apiVersion, kind, metadata, spec, status — exist in practically every Kubernetes object. If you see a YAML missing one, be suspicious before you apply.
+Discovering the cluster's API
+A useful fact: the apiserver itself exposes its own documentation. You can ask it for the full description of any type:
+kubectl explain deployment
+kubectl explain deployment.spec
+kubectl explain deployment.spec.template.spec.containers --recursive
+That returns the valid fields, their types, and a brief description. It's the authoritative source — more faithful to your cluster than any tutorial, because it reflects exactly the version you have installed.
+In the next sub-part we formalize controllers: what they are, how they're built, and why they are the engine of the declarative model.
