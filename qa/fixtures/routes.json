@@ -1,0 +1,949 @@
+[
+  {
+    "path": "/",
+    "kind": "home"
+  },
+  {
+    "path": "/post/migrar-a-nftables-kube-proxy",
+    "kind": "post"
+  },
+  {
+    "path": "/post/activar-ipvs-en-kube-proxy",
+    "kind": "post"
+  },
+  {
+    "path": "/tutorial/que-es-realmente-un-contenedor",
+    "kind": "tutorial-series"
+  },
+  {
+    "path": "/tutorial/que-es-realmente-un-contenedor/introduccion",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-realmente-un-contenedor/namespaces",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-realmente-un-contenedor/capabilities",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-realmente-un-contenedor/chroot-pivot-root",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-realmente-un-contenedor/overlayfs",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-realmente-un-contenedor/cgroups",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-realmente-un-contenedor/construyendo-un-contenedor",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-realmente-un-contenedor/container-runtime",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-realmente-un-contenedor/resumen",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-pod",
+    "kind": "tutorial-series"
+  },
+  {
+    "path": "/tutorial/que-es-un-pod/introduccion",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-pod/el-problema",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-pod/el-contenedor-pause",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-pod/como-kubelet-crea-un-pod",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-pod/cni-la-ip-del-pod",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-pod/anatomia-del-spec",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-pod/pods-multi-contenedor",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-pod/ciclo-de-vida",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-pod/como-crear-un-pod-desde-0",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-pod/resumen",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-servicio",
+    "kind": "tutorial-series"
+  },
+  {
+    "path": "/tutorial/que-es-un-servicio/introduccion",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-servicio/la-ip-virtual-que-no-existe",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-servicio/kube-proxy-y-los-modos-de-proxy",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-servicio/reglas-iptables-en-profundidad",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-servicio/endpointslices",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-servicio/tipos-de-service",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-servicio/dns-y-coredns",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-servicio/el-flujo-completo-de-un-paquete",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-servicio/como-crear-un-service-desde-0",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/tutorial/que-es-un-servicio/resumen",
+    "kind": "tutorial-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners",
+    "kind": "course"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/architecture",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/architecture/introduccion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/architecture/control-plane",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/architecture/worker-nodes",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/architecture/flujo-de-una-peticion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/architecture/etcd-la-fuente-de-verdad",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/architecture/alta-disponibilidad",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/architecture/resumen",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/api-and-declarative-model",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/api-and-declarative-model/introduccion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/api-and-declarative-model/objetos-y-reconciliacion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/api-and-declarative-model/grupos-y-versiones",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/api-and-declarative-model/controllers",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/api-and-declarative-model/crds-y-extensibilidad",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/api-and-declarative-model/kubectl-y-server-side-apply",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/api-and-declarative-model/resumen",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/pods",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/pods/introduccion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/pods/anatomia-del-spec",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/pods/single-vs-multi-contenedor",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/pods/sidecars-e-init-containers",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/pods/ciclo-de-vida",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/pods/comandos-esenciales",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/pods/quien-gestiona-pods-en-produccion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/pods/resumen",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/replicasets-and-deployments",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/replicasets-and-deployments/introduccion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/replicasets-and-deployments/replicaset",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/replicasets-and-deployments/deployment",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/replicasets-and-deployments/labels-y-selectors",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/replicasets-and-deployments/escalar-y-actualizar",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/replicasets-and-deployments/rollback-y-revisiones",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/replicasets-and-deployments/resumen",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/configmaps-secrets",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/configmaps-secrets/introduccion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/configmaps-secrets/configmap",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/configmaps-secrets/secret",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/configmaps-secrets/volumenes-vs-env",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/configmaps-secrets/actualizacion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/configmaps-secrets/limites-y-alternativas",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/configmaps-secrets/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/namespaces",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/namespaces/introduccion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/namespaces/namespaces-por-defecto",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/namespaces/crear-y-listar",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/namespaces/recursos-namespaced-vs-cluster",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/namespaces/resourcequota-y-limitrange",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/namespaces/networkpolicy",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/namespaces/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/container-runtimes-and-cri",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/container-runtimes-and-cri/introduccion",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/container-runtimes-and-cri/runc-containerd-crio",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/container-runtimes-and-cri/cri",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/container-runtimes-and-cri/kubelet-al-runtime",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/container-runtimes-and-cri/oci",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/container-runtimes-and-cri/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/scheduling",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/scheduling/introduccion",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/scheduling/filtering-y-scoring",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/scheduling/nodeselector",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/scheduling/taints-y-tolerations",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/scheduling/affinity-y-antiaffinity",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/scheduling/priority-y-preemption",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/scheduling/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/services",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/services/introduccion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/services/clusterip",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/services/nodeport",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/services/loadbalancer",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/services/kube-proxy",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/services/endpoints-y-endpointslices",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/services/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/ingress-and-dns",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/ingress-and-dns/introduccion",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/ingress-and-dns/ingress",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/ingress-and-dns/ingress-controller",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/ingress-and-dns/coredns",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/ingress-and-dns/gateway-api",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/ingress-and-dns/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/rolling-updates",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/rolling-updates/introduccion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/rolling-updates/rolling-update",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/rolling-updates/recreate",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/rolling-updates/blue-green-y-canary",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/rolling-updates/readiness-probes-en-rollout",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/rolling-updates/rollback",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/rolling-updates/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/persistent-volumes",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/persistent-volumes/introduccion",
+    "kind": "course-part",
+    "hasContent": true
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/persistent-volumes/volumes-vs-persistentvolumes",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/persistent-volumes/pv-pvc-pod",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/persistent-volumes/access-modes",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/persistent-volumes/storageclass",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/persistent-volumes/reclaim-policy",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/persistent-volumes/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/statefulsets-daemonsets-jobs",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/statefulsets-daemonsets-jobs/introduccion",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/statefulsets-daemonsets-jobs/statefulset",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/statefulsets-daemonsets-jobs/daemonset",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/statefulsets-daemonsets-jobs/job",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/statefulsets-daemonsets-jobs/cronjob",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/statefulsets-daemonsets-jobs/cuando-elegir-cual",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/statefulsets-daemonsets-jobs/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/security-rbac-serviceaccounts",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/security-rbac-serviceaccounts/introduccion",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/security-rbac-serviceaccounts/usuarios-vs-serviceaccounts",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/security-rbac-serviceaccounts/rbac",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/security-rbac-serviceaccounts/tokens-y-pod-identity",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/security-rbac-serviceaccounts/pod-security-admission",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/security-rbac-serviceaccounts/menor-privilegio",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/security-rbac-serviceaccounts/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/autoscaling",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/autoscaling/introduccion",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/autoscaling/hpa",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/autoscaling/vpa",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/autoscaling/cluster-autoscaler",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/autoscaling/metrics-server",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/autoscaling/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-ecosystem",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-ecosystem/introduccion",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-ecosystem/cncf",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-ecosystem/landscape",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-ecosystem/principios-cloud-native",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-ecosystem/twelve-factor",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-ecosystem/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-community",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-community/introduccion",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-community/sigs-y-working-groups",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-community/toc-y-comites",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-community/como-contribuir",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-community/eventos",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/cloud-native-community/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/observability",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/observability/introduccion",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/observability/logs",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/observability/metricas",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/observability/traces",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/observability/events-y-describe",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/observability/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/prometheus",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/prometheus/introduccion",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/prometheus/servicemonitor",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/prometheus/promql",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/prometheus/alerting",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/prometheus/grafana",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/prometheus/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/gitops-and-cicd",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/gitops-and-cicd/introduccion",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/gitops-and-cicd/ci-vs-cd",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/gitops-and-cicd/argocd-y-flux",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/gitops-and-cicd/helm-y-kustomize",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/gitops-and-cicd/rollouts-progresivos",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/gitops-and-cicd/resumen",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/kcna-exam-prep",
+    "kind": "course-chapter"
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/kcna-exam-prep/introduccion",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/kcna-exam-prep/formato-y-tiempo",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/kcna-exam-prep/recursos-oficiales",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/kcna-exam-prep/simulacros",
+    "kind": "course-part",
+    "hasContent": false
+  },
+  {
+    "path": "/course/kubernetes-for-beginners/kcna-exam-prep/despues-de-kcna",
+    "kind": "course-part",
+    "hasContent": false
+  }
+]
