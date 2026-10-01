@@ -1,0 +1,44 @@
+Kubernetes for Beginners
+Chapter 1 of 21 · Section 4 of 7
+The Request Flow: From kubectl apply to Running Container
+All the pieces are on the table: four control plane processes, three on each worker node, and a database. Now let's put them to work together. The best way to see how they fit is to follow, step by step, what happens between typing kubectl apply -f deploy.yaml and your container showing up running.
+It is not a sequential process where one component tells the next "I'm done, your turn". It is asynchronous and event-driven: every component watches the apiserver, reacts to changes, and acts. Nobody waits for anybody. That's the key to why Kubernetes scales.
+Step 1 — kubectl sends the YAML
+When you run kubectl apply -f deploy.yaml, kubectl:
+Reads the file and converts it to JSON.
+Uses your kubeconfig to know which cluster to hit and with what credentials.
+Opens a TLS connection to the kube-apiserver (port 6443) and sends a POST or PATCH with the object.
+Up to this point, kubectl has no magic: it's an HTTP client with a YAML parser.
+Step 2 — the apiserver filters the request
+The apiserver receives the request and runs it through a chain:
+Authentication: who are you? (token, certificate, OIDC)
+Authorization: can you do this? (RBAC, ABAC, webhook)
+Admission controllers: hooks that can mutate the object (mutating) or reject it (validating).
+Schema validation: the object matches the resource's OpenAPI spec.
+If everything passes, the apiserver writes the object to etcd. At that moment — and only at that moment — the Deployment officially exists in the cluster. The apiserver answers 201 Created to kubectl, and your terminal prints deployment.apps/my-app created.
+Notice: there are no Pods yet. Only a stored Deployment object.
+Step 3 — the controllers react
+The kube-controller-manager has an open watch on the apiserver over Deployments. When it sees the new object, the Deployment controller kicks in:
+Computes: "for this Deployment with 3 replicas, I need a ReplicaSet with replicas=3".
+Asks the apiserver to create that ReplicaSet.
+The apiserver stores the ReplicaSet in etcd. That fires another watch: the ReplicaSet controller sees an RS with replicas=3 and zero Pods. It creates 3 Pods (also via the apiserver). Each Pod ends up in etcd with an empty spec.nodeName.
+Step 4 — the scheduler assigns nodes
+The kube-scheduler watches Pods without nodeName. It sees them appear, and for each one runs the algorithm we described in the previous sub-part: filtering (which nodes are eligible) and scoring (which one is best).
+For each Pod, it asks the apiserver to patch spec.nodeName with the chosen node. That PATCH lands in etcd.
+Up to here, we still have no container running. Everything has happened in the data plane, not in the execution plane.
+Step 5 — kubelet brings up the Pod
+On every node, kubelet has a watch on the apiserver filtered by spec.nodeName. When the one on node X sees a new Pod assigned to it:
+It asks the container runtime (containerd, CRI-O) to create the Pod via CRI.
+The runtime pulls the image if it's not cached.
+The runtime first creates the pause container, which holds the Pod's network and PID namespaces alive.
+Then it creates each of your app's containers inside those same namespaces.
+Once running, kubelet starts executing probes and reporting status back to the apiserver.
+If you're curious about what happens inside the runtime and the kernel, the "What is a Pod?" tutorial opens that box.
+Step 6 — kube-proxy exposes the Service
+If your Deployment had an associated Service, the flow is parallel: the apiserver stores the Service, the EndpointSlice controller maps the Pods matching the selector to real IPs, and kube-proxy on every node programs the rules (iptables, ipvs, nftables) so that packets directed to the ClusterIP land on Pod IPs.
+From that moment on, any Pod in the cluster can run curl http://my-service and reach your containers.
+The recurring pattern
+If you look closely, the whole flow boils down to a single rule:
+Somebody writes to etcd → somebody else, who was watching, reacts → writes something new to etcd → the next one reacts → …
+Nobody talks to anybody directly. Only the apiserver has a "voice"; the rest are observers acting in a chain. That's why you can have hundreds of controllers, thousands of nodes, and the model still works: each component is independent and reactive.
+In the next sub-part we open etcd, the piece that makes all this possible — the only source of truth of the cluster.

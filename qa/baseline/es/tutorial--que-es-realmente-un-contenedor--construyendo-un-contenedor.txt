@@ -1,0 +1,276 @@
+¿Qué es realmente un contenedor?
+Parte 7 de 9
+Construyendo un contenedor desde 0
+Tenemos todas las piezas: namespaces, capabilities, pivot_root, OverlayFS, cgroups. Es hora de armarlas. Vamos a construir un contenedor funcional sin Docker, usando solo herramientas del kernel.
+Paso 1: preparar el rootfs
+Necesitamos un filesystem raíz. Usamos Alpine porque es mínimo:
+# Exportar el rootfs de Alpine desde una imagen Docker
+mkdir -p /tmp/mycontainer/rootfs
+docker export $(docker create alpine) | tar -xC /tmp/mycontainer/rootfs
+ls /tmp/mycontainer/rootfs
+# bin dev etc home lib media mnt opt proc root run sbin srv sys tmp usr var
+Paso 2: crear los namespaces con unshare
+unshare invoca la syscall del mismo nombre. Cada flag crea un namespace del tipo correspondiente:
+sudo unshare \
+--pid \ # Nuevo namespace de PID
+--fork \ # Fork necesario para que PID 1 sea el proceso hijo
+--uts \ # Nuevo namespace de hostname
+--ipc \ # Nuevo namespace de IPC
+--net \ # Nuevo namespace de red
+--mount-proc=/tmp/mycontainer/rootfs/proc \ # /proc fresco + mount namespace implícito
+/bin/bash
+Desde aquí, estamos dentro de los namespaces pero todavía con el filesystem del host.
+Paso 3: pivot_root al rootfs del contenedor
+# Dentro del unshare:
+# Hacer privada la propagación del árbol actual: pivot_root lo requiere.
+# Si lo omites, el siguiente pivot_root falla con EINVAL en muchas distros.
+mount --make-rprivate /
+# Montar el rootfs como bind mount (necesario para pivot_root)
+mount --bind /tmp/mycontainer/rootfs /tmp/mycontainer/rootfs
+cd /tmp/mycontainer/rootfs
+# Crear el directorio para el viejo root
+mkdir -p .old_root
+# Intercambiar el root
+pivot_root . .old_root
+cd /
+# Desmontar el filesystem del host
+umount -l /.old_root
+rmdir /.old_root
+# Verificar: ahora solo vemos Alpine
+ls /
+cat /etc/os-release | head -2
+# NAME="Alpine Linux"
+Paso 4: montar los filesystems virtuales
+# proc: necesario para ps, /proc/self, etc.
+mount -t proc proc /proc
+# devtmpfs: dispositivos básicos
+mount -t devtmpfs dev /dev
+# tmpfs: /tmp y /run
+mount -t tmpfs tmpfs /tmp
+mount -t tmpfs tmpfs /run
+# Verificar procesos: solo vemos los del nuevo namespace
+ps aux
+# PID USER TIME COMMAND
+# 1 root 0:00 /bin/bash
+# 12 root 0:00 ps aux
+Paso 5: configurar hostname y red básica
+# Hostname propio (namespace UTS)
+hostname mi-contenedor
+hostname
+# mi-contenedor
+# La interfaz loopback está ahí pero down
+ip addr
+# 1: lo: <LOOPBACK> ...
+# Levantar loopback
+ip link set lo up
+ip addr show lo
+# 1: lo: <LOOPBACK,UP> ...
+Sin conectividad externa
+Tu contenedor solo tiene lo levantada; no hay salida a internet. nslookup, apk add o cualquier curl fallará con Network unreachable o timeouts de DNS. Esto es esperado: para dar conectividad hay que crear un veth pair entre el network namespace del contenedor y el host, agregar el extremo del host a un bridge (p. ej. docker0), asignar una IP, configurar default route dentro del namespace, y opcionalmente reglas NAT en iptables. Todo eso lo hace Docker por ti; acá lo dejamos fuera del scope para mantener el ejemplo enfocado. Si necesitas instalar paquetes dentro, hazlo antes de entrar al namespace (con chroot /tmp/mycontainer/rootfs apk add ...).
+Paso 6: aplicar límites de recursos con cgroups
+Desde otra terminal del host (el cgroup se aplica desde fuera):
+# OJO: con --fork, unshare hace fork() y el HIJO ejecuta bash dentro de los
+# namespaces nuevos. El proceso "unshare" padre se queda esperando en el
+# namespace original — meterlo al cgroup no limita al contenedor.
+# Lo que queremos es el PID del bash hijo.
+# -n (newest) evita que pgrep -f matchee los wrappers de sudo — al correr
+# 'sudo unshare ...' suelen aparecer 2-3 PIDs con 'unshare' en la cmdline.
+# El más nuevo siempre es el propio binario unshare.
+UNSHARE_PID=$(pgrep -n -f "unshare.*mount-proc")
+CONTAINER_PID=$(pgrep -P ${UNSHARE_PID}) # hijo directo del unshare = el bash
+# Verificar (debería estar en un PID namespace distinto al del host)
+readlink /proc/${CONTAINER_PID}/ns/pid
+readlink /proc/1/ns/pid # distintos → está aislado
+# Crear el cgroup
+mkdir /sys/fs/cgroup/mi-contenedor
+# Límites
+echo $((256 * 1024 * 1024)) > /sys/fs/cgroup/mi-contenedor/memory.max
+echo "50000 100000" > /sys/fs/cgroup/mi-contenedor/cpu.max
+echo 100 > /sys/fs/cgroup/mi-contenedor/pids.max
+# Agregar el proceso del contenedor
+echo ${CONTAINER_PID} > /sys/fs/cgroup/mi-contenedor/cgroup.procs
+Paso 7: validar el aislamiento
+Antes de declarar victoria, tres pruebas que reusan lo que construimos en capítulos anteriores.
+7.1 — pivot_root resiste el escape de chroot
+Copia el escape compilado en la parte 4 al rootfs del contenedor (desde el host, antes de entrar al unshare):
+# En el host (antes del unshare)
+cp /tmp/rootfs/escape /tmp/mycontainer/rootfs/escape
+# Dentro del contenedor manual (tras pivot_root + umount del viejo root)
+./escape
+cat /etc/os-release | head -1
+# PRETTY_NAME="Alpine Linux v3.23" ← sigue siendo Alpine, el escape falló
+El mismo binario que en la parte 4 te sacó de un chroot hacia Ubuntu aquí queda atrapado en Alpine. Razón: pivot_root + umount -l /.old_root eliminó la tabla de montajes del host, y el exploit de chroot no tiene "fuera" al que llegar.
+7.2 — Las capabilities dentro del contenedor
+En tu contenedor manual, unshare no dropeó capabilities. Resultado: siendo UID 0 dentro, tienes TODAS las capabilities del host, a diferencia del subconjunto reducido que Docker aplica (ver parte 3):
+# Dentro del contenedor (tty A)
+cat /proc/self/status | grep Cap
+# CapInh: 0000000000000000
+# CapPrm: 000001ffffffffff ← todas las 41 capabilities disponibles
+# CapEff: 000001ffffffffff
+# CapBnd: 000001ffffffffff
+# CapAmb: 0000000000000000
+Alpine no incluye capsh — y como ya vimos, sin conectividad tampoco podemos instalarlo desde dentro. Por suerte la conversión hex→nombres es cálculo local y no toca al proceso, así que basta con usar el capsh del host (paquete libcap2-bin en Ubuntu/Debian) desde otra terminal:
+# En otra terminal del host
+capsh --decode=000001ffffffffff
+# 0x000001ffffffffff=cap_chown,cap_dac_override,cap_dac_read_search,cap_fowner,
+# cap_fsetid,cap_kill,cap_setgid,cap_setuid,cap_setpcap,cap_linux_immutable,
+# cap_net_bind_service,cap_net_broadcast,cap_net_admin,cap_net_raw,cap_ipc_lock,
+# cap_ipc_owner,cap_sys_module,cap_sys_rawio,cap_sys_chroot,cap_sys_ptrace,
+# cap_sys_pacct,cap_sys_admin,cap_sys_boot,cap_sys_nice,cap_sys_resource,
+# cap_sys_time,cap_sys_tty_config,cap_mknod,cap_lease,cap_audit_write,
+# cap_audit_control,cap_setfcap,cap_mac_override,cap_mac_admin,cap_syslog,
+# cap_wake_alarm,cap_block_suspend,cap_audit_read,cap_perfmon,cap_bpf,
+# cap_checkpoint_restore
+#
+# Incluye CAP_SYS_ADMIN, CAP_SYS_MODULE, CAP_SYS_PTRACE, CAP_NET_ADMIN —
+# todo lo que Docker dropea de su set por defecto.
+Esto es lo que hace que nuestro contenedor sea funcional pero no seguro como defensa. Un runtime OCI (runc) usa prctl(PR_CAPBSET_DROP, ...) después del pivot_root para restringirlo al bounding set del config.json. Lo omitimos aquí por simplicidad, pero sabiendo que falta.
+7.3 — Los límites del cgroup funcionan y lo puedes pausar
+Desde la terminal del host (con CONTAINER_PID del paso 6), confirma que cgroup.freeze pausa a tu contenedor manual igual que a cualquier container de Docker:
+# Dentro del contenedor (tty A): arranca un contador
+i=0; while true; do i=$((i+1)); echo "tick $i $(date +%T)"; sleep 1; done
+# tick 1 11:48:51
+# tick 2 11:48:52
+# ...
+# tick 13 11:49:03
+# En el host (tty B): congelar
+echo 1 > /sys/fs/cgroup/mi-contenedor/cgroup.freeze
+cat /sys/fs/cgroup/mi-contenedor/cgroup.events
+# populated 1
+# frozen 1 ← confirmado
+# Esperar ~30s y descongelar
+echo 0 > /sys/fs/cgroup/mi-contenedor/cgroup.freeze
+# Volver al tty A: los ticks resumen con un salto en el timestamp
+# tick 13 11:49:03
+# tick 14 11:49:31 ← 28 segundos de gap por el freeze
+Es exactamente la misma primitiva que demostramos en la parte 6 para contenedores Docker — la estás aplicando tú a un cgroup que tú creaste, sobre un proceso que tú moviste dentro.
+Paso 8: limpiar
+Salir del contenedor manual es solo exit (se acaba el bash que era PID 1, el kernel libera los namespaces). Pero el cgroup y los mounts persisten — conviene limpiarlos:
+# Dentro del contenedor
+exit # sale del bash PID 1
+# En el host, limpiar el cgroup (solo se puede si ya no tiene procesos)
+rmdir /sys/fs/cgroup/mi-contenedor
+# Opcional: limpiar el rootfs exportado
+rm -rf /tmp/mycontainer
+Los namespaces desaparecen automáticamente cuando no quedan ni procesos dentro ni FDs abiertos hacia /proc/<pid>/ns/*. Los mounts que creamos dentro del namespace (/proc, /dev, /tmp, /run) se desmontaron junto con el mount namespace al salir.
+Paso 9 (opcional): rootfs con OverlayFS
+Hasta aquí el contenedor usa un bind mount plano del rootfs: cualquier escritura modifica /tmp/mycontainer/rootfs directamente. Un runtime real no hace esto — usa OverlayFS para que la imagen base quede inmutable y los cambios vivan en una capa separada. Así múltiples contenedores pueden compartir la misma imagen sin interferir.
+Sustituye el bind mount del Paso 3 por un overlay:
+# Fuera del unshare, preparar las 4 capas
+mkdir -p /tmp/mycontainer/{lower,upper,work,merged}
+docker export $(docker create alpine) | tar -xC /tmp/mycontainer/lower
+# lower: imagen base (read-only desde la perspectiva del contenedor)
+# upper: capa de escritura exclusiva del contenedor
+# work: directorio auxiliar interno de OverlayFS
+# merged: el punto de montaje que el contenedor verá como /
+# Entrar al unshare (como antes)
+sudo unshare --pid --fork --uts --ipc --net \
+--mount-proc=/tmp/mycontainer/merged/proc /bin/bash
+# Dentro: montar el overlay y pivot_root sobre merged
+mount --make-rprivate /
+mount -t overlay overlay \
+-o lowerdir=/tmp/mycontainer/lower,\
+upperdir=/tmp/mycontainer/upper,\
+workdir=/tmp/mycontainer/work \
+/tmp/mycontainer/merged
+cd /tmp/mycontainer/merged
+mkdir -p .old_root
+pivot_root . .old_root
+cd /
+umount -l /.old_root
+rmdir /.old_root
+mount -t proc proc /proc
+Ahora cualquier escritura dentro del contenedor se materializa en /tmp/mycontainer/upper/ — lower/ queda intacto:
+# Dentro del contenedor
+echo "hello from container" > /test.txt
+# En otra terminal del host
+ls /tmp/mycontainer/upper/
+# test.txt ← el archivo nuevo aparece SOLO en upper
+cat /tmp/mycontainer/upper/test.txt
+# hello from container
+ls /tmp/mycontainer/lower/ # la imagen base no cambió
+# bin dev etc home lib ... ← sin test.txt
+Para correr un segundo contenedor con la misma imagen base, solo necesitas otro upper/ + work/ + merged/ — lower/ se comparte. Esto es exactamente cómo Docker gestiona cientos de contenedores desde una sola pull de nginx:alpine.
+Paso 10 (opcional): hacerlo rootless con user namespace
+Hasta ahora todo el contenedor requiere sudo. Agregando el user namespace puedes correr el unshare completo como usuario normal — sin sudo. Tendrás UID 0 dentro, mapeado a tu UID real del host, que es la base técnica de Docker rootless y Podman.
+Esta sección se ejecuta de forma independiente: no asume que ya hiciste los pasos anteriores. Empieza creando el rootfs y un usuario sin privilegios.
+Antes de empezar — Ubuntu 24.04+
+Desde Ubuntu 24.04, AppArmor bloquea por default que usuarios sin privilegios creen user namespaces. Si el unshare de más abajo falla con write failed /proc/self/uid_map: Operation not permitted, este sysctl es la causa:
+sysctl kernel.apparmor_restrict_unprivileged_userns
+# kernel.apparmor_restrict_unprivileged_userns = 1 ← bloquea
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+# Permanente: agregar la línea a /etc/sysctl.d/99-unpriv-userns.conf
+Tradeoff: bajar este flag quita una capa de defense-in-depth — vulnerabilidades del kernel que requieran un user namespace nuevo se vuelven explotables por usuarios sin privilegios. Para una máquina de pruebas no es problema; en producción lo correcto es escribir un perfil AppArmor que permita el binario específico.
+Setup como root — preparar el rootfs y un usuario sin privilegios. El paso del chown es crítico: con --map-root-user solo se mapea un UID (0 ↔ 1001). Los archivos del rootfs los creó root (UID 0 del host), y desde adentro del namespace ese UID 0 del host no está mapeado, así que aparecen como nobody/overflow. El "root" del namespace no puede escribirles. Pasarle ownership a myuser antes de empezar resuelve eso.
+# Como root del host
+mkdir -p /tmp/mycontainer/rootfs
+docker export $(docker create alpine) | tar -xC /tmp/mycontainer/rootfs
+# Usuario sin privilegios
+useradd -m -u 1001 -s /bin/bash myuser
+echo 'myuser:12345' | chpasswd
+# El usuario debe ser dueño del rootfs para que pueda escribirle
+# desde el user namespace donde su UID 0 mapea a 1001 del host
+chown -R 1001:1001 /tmp/mycontainer
+Como myuser — entrar al user namespace y armar el contenedor. El --mount es redundante porque --mount-proc ya lo implica:
+su - myuser
+# OJO con la ruta de --mount-proc: usa ABSOLUTA y que coincida con donde
+# va a quedar /proc después del pivot_root. Una ruta relativa se resuelve
+# contra tu cwd, queda fuera del nuevo root, y desaparece con el umount
+# de /.old_root.
+unshare --user --map-root-user \
+--pid --fork --uts --ipc --net \
+--mount-proc=/tmp/mycontainer/rootfs/proc \
+/bin/bash
+# Dentro: eres "root" en el user namespace
+id
+# uid=0(root) gid=0(root)
+# Pero el mapeo muestra que "root" = tu UID real del host
+cat /proc/self/uid_map
+# 0 1001 1 ← UID 0 interno = UID 1001 externo
+# Las demás operaciones (mount, pivot_root, etc.) funcionan igual
+# porque tienes CAP_SYS_ADMIN dentro del user namespace.
+mount --make-rprivate /
+# OJO: --rbind, no --bind. --mount-proc ya montó procfs en
+# /tmp/mycontainer/rootfs/proc; un bind no recursivo crearía un nuevo
+# punto de montaje encima de esa ruta y taparía el procfs (verías el
+# directorio /proc vacío del tarball de Alpine, y ps no listaría nada).
+# --rbind preserva los sub-mounts a través del pivot_root.
+mount --rbind /tmp/mycontainer/rootfs /tmp/mycontainer/rootfs
+cd /tmp/mycontainer/rootfs && mkdir -p .old_root
+pivot_root . .old_root
+cd / && umount -l /.old_root && rmdir /.old_root
+hash -r # limpia el cache de comandos del shell
+# /proc YA está montado (preservado por --rbind): --mount-proc lo dejó en
+# /tmp/mycontainer/rootfs/proc, que después del pivot_root es /proc.
+# NO intentes 'mount -t proc proc /proc' acá — falla con EPERM porque
+# montar un proc nuevo en un user namespace requiere un proc "linaje"
+# del mismo user+pid namespace ya visible, y después del umount del viejo
+# root no queda ninguno alcanzable.
+ls /proc | head -3 # 1 16 17 ← solo el bash y sus hijos
+mount -t tmpfs tmpfs /tmp # tmpfs sí se puede montar siempre
+Punto conceptual clave: el "root" que ves dentro del namespace es root para las operaciones que viven dentro de este user namespace. Tienes CAP_SYS_ADMIN, puedes mount, puedes chmod archivos creados por procesos del namespace. Pero el kernel sigue evaluándote como UID 1001 cuando intentas algo que cruza el límite — tocar archivos del host cuyo dueño es un UID no mapeado, enviar señales a procesos fuera de tu PID namespace, llamar syscalls que requieren caps en el user namespace inicial. Es la misma idea que vimos en por qué root en un contenedor sigue siendo peligroso, pero ahora con una barrera real: el mapeo del kernel hace que las dos perspectivas (la del namespace y la del host) sean distintas para todo lo que importe.
+Limitaciones del modo rootless
+No todas las operaciones del Paso 4 funcionan. mount -t devtmpfs dev /dev falla porque requiere CAP_SYS_ADMIN en el user namespace inicial, no el tuyo derivado. Workaround práctico: usar mount -t tmpfs tmpfs /dev y mknod los pocos devices que necesitas (también limitado), o bind-mount selectivo de /dev/null, /dev/zero, etc. desde el host.
+OverlayFS sobre user namespace sí funciona desde kernel 5.11+ (unprivileged overlay). Si estás en un kernel más viejo, necesitarás FUSE-overlayfs — exactamente lo que usa Podman en esos casos.
+Verifica el aislamiento de privilegio desde otra terminal del host:
+# Desde fuera (terminal del host, sin sudo)
+BASH_PID=$(pgrep -f 'unshare.*mount-proc' | xargs -I{} pgrep -P {})
+# El bash dentro del contenedor rootless corre con TU UID real
+ps -o pid,uid,user,comm -p ${BASH_PID}
+# PID UID USER COMMAND
+# 1234 1001 ubuntu bash ← UID 1001 del host
+# (aunque dentro dice "root")
+Si ese proceso escapa del contenedor (fuga del runtime, vulnerabilidad del kernel), aterriza en el host como ubuntu, no como root. El daño que puede hacer está limitado a lo que tu usuario normal puede hacer. Es la diferencia entre "un bug = tu CI comprometido" y "un bug = tu servidor comprometido".
+Resultado final
+# Dentro del contenedor manual:
+ps aux # Solo bash y ps (PID namespace aislado)
+hostname # mi-contenedor (UTS namespace)
+ip addr # Solo loopback (net namespace)
+ls / # Alpine (pivot_root efectivo)
+cat /proc/1/cgroup # Apunta al cgroup que creamos
+Esto es exactamente lo que hace un runtime de contenedores, con algunas diferencias:
+Los runtimes leen la configuración desde un bundle OCI (config.json), no de flags.
+Usan seccomp para filtrar syscalls peligrosas (nosotros no lo cubrimos aquí).
+Aplican perfiles de AppArmor o SELinux como capa adicional.
+Configuran el veth pair y lo conectan a un bridge antes de entrar al namespace de red.
+Pero la estructura es idéntica. Lo que acabas de construir es un contenedor.

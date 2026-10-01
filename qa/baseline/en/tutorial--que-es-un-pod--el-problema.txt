@@ -1,0 +1,13 @@
+What is a Pod?
+Part 2 of 10
+The Problem a Pod Solves
+Before diving into the depths of how a Pod works, it is worth understanding why it exists. It was not born from an arbitrary design decision — it was born from a concrete problem: a single container is not always enough.
+When Docker appeared, it solved a real problem: how to package and isolate a process. It worked so well that the industry assumed the container was the unit of deployment. One process, one image, one container. Simple.
+But real applications are not a single process.
+Take an nginx web server that writes log files. Someone has to rotate those logs, compress them, ship them to a centralized system. You could put that logic inside the same container, but then you are mixing responsibilities: the nginx image now has Fluentd inside it, it gets updated whenever either one changes, and if the log shipper crashes it takes nginx down with it.
+The obvious alternative is two separate containers. But that is where the problem appears: how do they share the log files? Over the network? With a volume mounted in both? And how do you guarantee they always run on the same node, that they have access to the same local filesystem, that if one moves the other follows?
+Docker Compose solved this partially, but only on a single node. In a cluster of hundreds of machines, you need the scheduler to know that these two containers are an atomic unit: placed together, scheduled together, and replaced together.
+That is the problem the Pod solves.
+It is not an abstraction invented to add another layer. It is the answer to a concrete question: what is the minimum unit of co-location? Which group of processes has such cohesion that separating them makes no sense?
+Kubernetes' answer was: processes that need to share network and storage. That and only that defines the Pod boundary. Everything that can live in separate Pods should. Everything that needs the same network interface or the same local volume goes in the same Pod.
+And to implement that at the kernel level, Kubernetes needed a piece that does not appear in any YAML: the pause container.

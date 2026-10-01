@@ -1,0 +1,71 @@
+¿Qué es un Service?
+Parte 6 de 10
+Tipos de Service
+Hasta ahora trabajamos exclusivamente con Services de tipo ClusterIP: una IP virtual accesible solo desde dentro del cluster. Kubernetes tiene cuatro tipos de Service, y cada uno extiende al anterior. Entender la jerarquía hace que la elección sea obvia en cada situación.
+ClusterIP
+Es el tipo por defecto y el que ya diseccionamos. Asigna una IP virtual del rango configurado en el API server, accesible únicamente desde dentro del cluster. No tiene ningún mecanismo de exposición externa. Es la base sobre la que se construyen los otros tipos.
+NodePort
+Extiende ClusterIP abriendo un puerto en el rango 30000–32767 en cada nodo del cluster — incluyendo el controlplane. El tráfico que llega a ese puerto en cualquier nodo es redirigido al Service.
+kubectl expose deploy nginx --port 80 --type NodePort
+kubectl get svc nginx
+# NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+# nginx NodePort 10.102.127.174 <none> 80:31138/TCP 6s
+El port 31138 se abrió en todos los nodos. Para ver las reglas que kube-proxy instaló en la chain KUBE-NODEPORTS:
+iptables -t nat -L KUBE-NODEPORTS -n --line-numbers
+# Chain KUBE-NODEPORTS (1 references)
+# num target prot opt source destination
+# 1 KUBE-EXT-2CMXP7HKUVJN7L6M 6 -- 0.0.0.0/0 127.0.0.0/8 /* default/nginx */ tcp dpt:31138 nfacct-name localhost_nps_accepted_pkts
+# 2 KUBE-EXT-2CMXP7HKUVJN7L6M 6 -- 0.0.0.0/0 0.0.0.0/0 /* default/nginx */ tcp dpt:31138
+A diferencia de ClusterIP, el tráfico NodePort no salta directo a KUBE-SVC-* — pasa primero por una chain intermedia KUBE-EXT-*. La regla 1 cubre tráfico desde localhost con un contador de auditoría (nfacct); la regla 2 cubre todo el resto. Ambas van a la misma chain. Inspeccionándola:
+iptables -t nat -L KUBE-EXT-2CMXP7HKUVJN7L6M -n --line-numbers
+# Chain KUBE-EXT-2CMXP7HKUVJN7L6M (2 references)
+# num target prot opt source destination
+# 1 KUBE-MARK-MASQ 0 -- 0.0.0.0/0 0.0.0.0/0 /* masquerade traffic for default/nginx external destinations */
+# 2 KUBE-SVC-2CMXP7HKUVJN7L6M 0 -- 0.0.0.0/0 0.0.0.0/0
+La diferencia clave con ClusterIP está en la regla 1: KUBE-EXT-* aplica KUBE-MARK-MASQ a todo el tráfico externo sin excepción, mientras que en KUBE-SVC-* el masquerading solo aplica a tráfico cuyo origen no está en el pod CIDR (!192.168.0.0/16). El tráfico que entra por NodePort siempre necesita masquerading porque su IP de origen es externa al cluster — sin eso, la respuesta del Pod no podría volver por el mismo camino. Después del marcado, la regla 2 salta a KUBE-SVC-*, donde ocurre el load balancing estadístico y el DNAT exactamente igual que en ClusterIP. El flujo completo es: KUBE-NODEPORTS → KUBE-EXT-* → KUBE-MARK-MASQ + KUBE-SVC-* → KUBE-SEP-* → DNAT.
+NodePort es útil para exposición directa en bare metal o para integrar con load balancers externos sin integración nativa con Kubernetes. Su limitación es que expone un puerto en todos los nodos — si el cliente apunta a un nodo que no tiene ningún Pod del Service, el tráfico igualmente llega, pero kube-proxy lo redirige a un Pod en otro nodo, agregando un hop de red innecesario.
+LoadBalancer
+Extiende NodePort agregando un balanceador de carga externo aprovisionado automáticamente. Cuando creas un Service de tipo LoadBalancer en un cluster con un cloud controller manager — GKE, EKS, AKS — Kubernetes le pide al proveedor que cree un LB externo apuntando a los NodePorts de todos los nodos.
+kubectl expose deploy nginx --port 80 --type LoadBalancer
+kubectl get svc nginx
+# NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+# nginx LoadBalancer 10.110.151.121 <pending> 80:31228/TCP 4s
+El campo EXTERNAL-IP lo asigna el cloud controller manager una vez que el LB externo está listo. En un cluster sin integración de nube — como este laboratorio — ese campo se queda en <pending> indefinidamente. En bare metal, herramientas como MetalLB implementan el mismo protocolo para asignar IPs externas desde un rango configurado.
+Internamente, LoadBalancer sigue siendo un NodePort más un ClusterIP. El LB externo solo sabe de las IPs y puertos de los nodos — no habla directamente con los Pods. Todo el routing interno sigue siendo kube-proxy con las mismas chains que ya conocemos.
+ExternalName
+Es el tipo más diferente — no crea ninguna ClusterIP ni ninguna regla iptables. En lugar de eso, hace que CoreDNS devuelva un registro CNAME apuntando a un nombre externo. Es un alias DNS puro.
+kubectl create service externalname mi-db --external-name db.produccion.ejemplo.com
+kubectl get svc mi-db
+# NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+# mi-db ExternalName <none> db.produccion.ejemplo.com <none> 5s
+Cuando un Pod resuelve mi-db.default.svc.cluster.local, CoreDNS devuelve un CNAME a db.produccion.ejemplo.com, y el Pod resuelve ese nombre directamente. No hay proxying, no hay DNAT, no hay kube-proxy involucrado. Es útil para crear un nombre interno estable que apunta a un recurso externo — una base de datos managed, una API de terceros — sin cambiar el código de la aplicación cuando ese recurso cambia de dirección.
+Headless Service
+Un Headless Service no es un tipo separado — es un ClusterIP con clusterIP: None explícito. Kubernetes no le asigna ninguna IP virtual y kube-proxy no instala ninguna regla iptables para él. En cambio, CoreDNS devuelve directamente los registros A de cada Pod.
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+name: nginx-headless
+spec:
+clusterIP: None
+selector:
+app: nginx
+ports:
+- port: 80
+EOF
+kubectl get svc nginx-headless
+# NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+# nginx-headless ClusterIP None <none> 80/TCP 6s
+Al resolver el nombre desde un Pod:
+kubectl run -it --rm debug --image=busybox --restart=Never -- nslookup nginx-headless
+# Server: 10.96.0.10
+# Address: 10.96.0.10:53
+#
+# Name: nginx-headless.default.svc.cluster.local
+# Address: 192.168.1.6
+# Name: nginx-headless.default.svc.cluster.local
+# Address: 192.168.1.7
+# Name: nginx-headless.default.svc.cluster.local
+# Address: 192.168.1.5
+DNS devuelve las tres IPs de los Pods directamente, sin ClusterIP intermedia. Cada dirección tiene el FQDN del Service como nombre — no el nombre individual del Pod — porque el selector del Service matchea los tres. El cliente elige a cuál conectarse.
+Los Headless Services son la base de los StatefulSets: cada Pod de un StatefulSet tiene un registro DNS estable y predecible (pod-0.servicio.namespace.svc.cluster.local) que apunta directamente a ese Pod específico. Eso es lo que permite que bases de datos como Cassandra o Kafka, donde cada réplica tiene un rol distinto, sean direccionables individualmente.

@@ -1,0 +1,23 @@
+Kubernetes para principiantes · Capítulo 17 de 21
+Cloud Native Community and Collaboration
+6 secciones
+En este capítulo
+01
+Introducción: gobernanza de un ecosistema abierto
+→
+02
+SIGs y working groups: dónde se hace el trabajo
+→
+03
+TOC y comités: quién decide qué
+→
+04
+Cómo contribuir: código, docs, tests, KEPs
+→
+05
+Eventos: KubeCon, contributor summits y meetups
+→
+06
+Resumen
+→
+Empezar el capítulo →

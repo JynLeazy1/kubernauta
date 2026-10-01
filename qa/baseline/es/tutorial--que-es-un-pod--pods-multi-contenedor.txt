@@ -1,0 +1,93 @@
+¿Qué es un Pod?
+Parte 7 de 10
+Pods multi-contenedor: sidecars e init containers
+Nota sobre terminología: En esta sección usamos la palabra "volumen" para referirnos tanto a volúmenes efímeros (como emptyDir) como a volúmenes persistentes montados via PVC. La mecánica de compartir entre contenedores es la misma en ambos casos — la diferencia está en el ciclo de vida del dato, no en cómo el Pod lo usa.
+Ahora que sabes que todos los contenedores de un Pod viven en el mismo network namespace (heredado del pause), el modelo multi-contenedor tiene sentido concreto. No es solo "varios procesos en el mismo Pod" — es varios procesos que comparten interfaces de red, pueden comunicarse por localhost, y ven el mismo filesystem de red. Lo que difiere entre contenedores es el namespace de PID y el OverlayFS.
+Init containers
+Los init containers son la herramienta para "preparación antes del arranque". Corren en secuencia, uno por uno, y el Pod no pasa a los contenedores regulares hasta que todos terminan con exit 0.
+spec:
+initContainers:
+- name: wait-for-db
+image: busybox
+command: ["sh", "-c", "until nc -z db 5432; do sleep 1; done"]
+- name: migrate-db
+image: flyway:latest
+command: ["flyway", "migrate"]
+env:
+- name: FLYWAY_URL
+value: jdbc:postgresql://db:5432/myapp
+containers:
+- name: app
+image: my-app:1.0
+A nivel de kernel, cada init container es un CreateContainer + StartContainer sobre el mismo podSandboxID. Comparte el namespace de red del pause (misma IP, mismo eth0), pero tiene su propio namespace de PID y su propio OverlayFS. Cuando termine, kubelet llama StopContainer y solo entonces empieza el siguiente.
+Un patrón común es usar un init container para escribir en un volumen que el contenedor principal lee al arrancar:
+volumes:
+- name: config
+emptyDir: {}
+initContainers:
+- name: render-config
+image: busybox
+command: ["sh", "-c", "echo 'server_name: prod' > /config/app.yaml"]
+volumeMounts:
+- name: config
+mountPath: /config
+containers:
+- name: app
+image: my-app:1.0
+volumeMounts:
+- name: config
+mountPath: /etc/app
+El patrón sidecar
+Un sidecar es un contenedor regular que corre en paralelo con el contenedor principal durante toda la vida del Pod. La razón por la que puede interceptar tráfico o leer logs es directamente el modelo de namespaces:
+Misma red: ambos tienen el eth0 del namespace del pause → pueden comunicarse por localhost y el sidecar puede interceptar puertos
+Volúmenes compartidos: si montan el mismo volumen → el sidecar puede leer lo que escribe la app
+Ejemplo de log shipping con Fluentd:
+spec:
+volumes:
+- name: logs
+emptyDir: {}
+containers:
+- name: app
+image: my-app:1.0
+volumeMounts:
+- name: logs
+mountPath: /var/log/app
+- name: log-shipper
+image: fluent/fluentd:v1.16
+volumeMounts:
+- name: logs
+mountPath: /var/log/app
+La app escribe en /var/log/app. El log-shipper lee del mismo directorio. Ambos usan el mismo bind mount del volumen en el host — el kernel no duplica nada.
+Service mesh: Istio y el namespace de red
+El caso más sofisticado es un proxy de red como el sidecar de Istio. Istio inyecta automáticamente un contenedor istio-proxy (Envoy) en cada Pod del mesh via un admission webhook. Este proxy puede interceptar todo el tráfico del Pod porque comparte el namespace de red:
+spec:
+containers:
+- name: app
+image: my-app:1.0
+- name: istio-proxy
+image: istio/proxyv2:1.20
+# Reconfigura iptables dentro del namespace de red del Pod
+# para redirigir todo el tráfico por el proxy
+Istio usa un init container (istio-init) para configurar reglas de iptables dentro del namespace de red del Pod antes de que arranque la app. Como el namespace de red es compartido, esas reglas afectan a todos los contenedores. Para verificarlo en el nodo, primero consigues el inode del netns del Pod a través del PID del pause y después listas todos los procesos que comparten ese mismo inode:
+# Obtener el PID del pause (el contenedor sandbox del Pod)
+PAUSE_PID=$(crictl inspect $(crictl pods --name my-app -q) | jq '.info.pid')
+# Inode del netns que el pause sostiene
+readlink /proc/${PAUSE_PID}/ns/net
+# net:[4026532603]
+# Listar TODOS los procesos del nodo que viven en ese mismo netns:
+lsns 4026532603
+# NS TYPE NPROCS PID USER COMMAND
+# 4026532603 net 3 67325 65535 /pause ← dueño del netns
+# 67452 root app
+# 67891 1337 envoy-proxy ← mismo netns
+# que pause y app
+El NPROCS=3 muestra que tres procesos comparten ese único network namespace. iptables -t nat -L -n ejecutado vía nsenter -t ${PAUSE_PID} --net muestra exactamente las reglas que istio-init instaló — afectan a todo el tráfico que sale o entra de cualquiera de los tres procesos.
+Sidecar containers nativos (Kubernetes 1.29+)
+Hasta Kubernetes 1.28, los sidecars eran contenedores regulares y había un problema: no había garantía de que arrancaran antes que el contenedor principal. Desde 1.29, existe el tipo sidecar nativo:
+spec:
+initContainers:
+- name: envoy-proxy
+restartPolicy: Always # ← esto lo convierte en sidecar nativo
+image: envoy:latest
+Un init container con restartPolicy: Always se convierte en un sidecar container — arranca antes que los contenedores regulares (como init container), pero no termina cuando ellos arrancan (como contenedor regular). kubelet lo mantiene vivo durante todo el Pod y lo reinicia si muere. Veremos restartPolicy en detalle en la siguiente sección.
+No abuses de los sidecars: Cada contenedor adicional consume sus propios recursos y añade complejidad al spec. Un DaemonSet para el agente de logs del nodo suele ser mejor que un sidecar en cada Pod.

@@ -1,0 +1,29 @@
+Kubernetes for Beginners · Chapter 3 of 21
+Understanding Kubernetes Pods
+8 sections
+In this chapter
+01
+Introduction: A Pod Is Not a Container
+→
+02
+Spec Anatomy: What You Are Actually Declaring
+→
+03
+Single-Container vs Multi-Container Pods
+→
+04
+Sidecars, Init Containers, and Ambassadors
+→
+05
+Lifecycle: Phases, Probes, and restartPolicy
+→
+06
+Essential Commands: get, describe, logs, exec
+→
+07
+Who Manages Pods in Production (Deployments, StatefulSets, Jobs)
+→
+08
+Summary: The Pod as the Minimum Unit
+→
+Start the chapter →

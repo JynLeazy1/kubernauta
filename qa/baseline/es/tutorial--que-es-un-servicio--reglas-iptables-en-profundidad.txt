@@ -1,0 +1,64 @@
+¿Qué es un Service?
+Parte 4 de 10
+Las reglas iptables en profundidad
+En la parte anterior vimos que todo empieza en la chain KUBE-SERVICES de la tabla nat. Ahora vamos a diseccionarla entera: qué reglas la componen, cómo el kernel las evalúa, y cómo el load balancing estadístico distribuye el tráfico entre varios Pods sin ningún proceso intermediario.
+Para este análisis creamos un Deployment de nginx con tres réplicas y lo exponemos:
+kubectl create deployment nginx --image=nginx --replicas=3
+kubectl expose deploy nginx --port 80
+kubectl get svc nginx
+# NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+# nginx ClusterIP 10.99.20.216 <none> 80/TCP 10s
+kubectl get pods -o wide
+# NAME READY IP NODE
+# nginx-66686b6766-74zs8 1/1 192.168.1.4 node01
+# nginx-66686b6766-cp47m 1/1 192.168.1.5 node01
+# nginx-66686b6766-tk7qv 1/1 192.168.1.6 node01
+La chain KUBE-SERVICES
+Es el punto de entrada. Cada Service del cluster tiene una regla aquí. Cuando un paquete TCP llega a las chains PREROUTING o OUTPUT, netfilter lo deriva a KUBE-SERVICES. La chain evalúa las reglas en orden y la primera que coincide con la IP:puerto de destino gana:
+iptables -t nat -L KUBE-SERVICES -n --line-numbers
+# Chain KUBE-SERVICES (2 references)
+# num target prot opt source destination
+# 1 KUBE-SVC-NPX46M4PTMTKRN6Y 6 -- 0.0.0.0/0 10.96.0.1 /* default/kubernetes:https cluster IP */ tcp dpt:443
+# 2 KUBE-SVC-TCOU7JCQXEZGVUNU 17 -- 0.0.0.0/0 10.96.0.10 /* kube-system/kube-dns:dns cluster IP */ udp dpt:53
+# 3 KUBE-SVC-ERIFXISQEP7F7OF4 6 -- 0.0.0.0/0 10.96.0.10 /* kube-system/kube-dns:dns-tcp cluster IP */ tcp dpt:53
+# 4 KUBE-SVC-JD5MR3NA4I4DYORP 6 -- 0.0.0.0/0 10.96.0.10 /* kube-system/kube-dns:metrics cluster IP */ tcp dpt:9153
+# 5 KUBE-SVC-2CMXP7HKUVJN7L6M 6 -- 0.0.0.0/0 10.99.20.216 /* default/nginx cluster IP */ tcp dpt:80
+# 6 KUBE-NODEPORTS 0 -- 0.0.0.0/0 0.0.0.0/0 /* kubernetes service nodeports */ ADDRTYPE match dst-type LOCAL
+El protocolo se muestra como número: 6 es TCP, 17 es UDP, 0 es todos los protocolos. Un paquete con destino 10.99.20.216:80 coincide con la regla 5 y salta a la chain KUBE-SVC-2CMXP7HKUVJN7L6M. La regla 6, KUBE-NODEPORTS, siempre es la última — se evalúa solo si ningún ClusterIP coincidió, y solo para tráfico con destino local al nodo.
+La chain KUBE-SVC-*: load balancing estadístico
+Cada Service tiene su propia chain KUBE-SVC-*. Con tres réplicas, la chain tiene cuatro reglas: una de masquerading para tráfico que viene de fuera del pod CIDR, y una por cada Pod backend:
+iptables -t nat -L KUBE-SVC-2CMXP7HKUVJN7L6M -n --line-numbers
+# Chain KUBE-SVC-2CMXP7HKUVJN7L6M (1 references)
+# num target prot opt source destination
+# 1 KUBE-MARK-MASQ 6 -- !192.168.0.0/16 10.99.20.216 /* default/nginx cluster IP */ tcp dpt:80
+# 2 KUBE-SEP-LJUUEGC24UMYBEWU 0 -- 0.0.0.0/0 0.0.0.0/0 /* default/nginx -> 192.168.1.4:80 */ statistic mode random probability 0.33333333349
+# 3 KUBE-SEP-BD6TRYPAX6RNC2PD 0 -- 0.0.0.0/0 0.0.0.0/0 /* default/nginx -> 192.168.1.5:80 */ statistic mode random probability 0.50000000000
+# 4 KUBE-SEP-XBSUSKRGZRORR4T6 0 -- 0.0.0.0/0 0.0.0.0/0 /* default/nginx -> 192.168.1.6:80 */
+La regla 1 marca para masquerading los paquetes cuyo origen no está en el rango 192.168.0.0/16 — es decir, tráfico que viene de fuera del cluster, como un curl desde el nodo. Las reglas 2, 3 y 4 implementan el load balancing.
+Las probabilidades no son arbitrarias — están calculadas para que cada Pod reciba exactamente un tercio del tráfico. La lógica es secuencial: el primer Pod tiene probabilidad 1/3. Si ese paquete no se desvía ahí (probabilidad 2/3), el siguiente tiene probabilidad 1/2 del tráfico restante — que es 1/3 del total. El tercer Pod recibe todo lo que sobra, también 1/3. La distribución es uniforme, sin estado, sin contadores compartidos entre nodos.
+La chain KUBE-SEP-*: el DNAT
+Cada endpoint tiene su propia chain KUBE-SEP-*. Contiene dos reglas: una para marcar paquetes que vienen del propio Pod (para el masquerading de retorno), y la regla DNAT que reescribe la IP destino:
+iptables -t nat -L KUBE-SEP-LJUUEGC24UMYBEWU -n
+# Chain KUBE-SEP-LJUUEGC24UMYBEWU (1 references)
+# target prot opt source destination
+# KUBE-MARK-MASQ 0 -- 192.168.1.4 0.0.0.0/0 /* default/nginx */
+# DNAT 6 -- 0.0.0.0/0 0.0.0.0/0 /* default/nginx */ tcp to:192.168.1.4:80
+sudo iptables -t nat -L KUBE-SEP-BD6TRYPAX6RNC2PD -n
+# KUBE-MARK-MASQ 0 -- 192.168.1.5 0.0.0.0/0 /* default/nginx */
+# DNAT 6 -- 0.0.0.0/0 0.0.0.0/0 /* default/nginx */ tcp to:192.168.1.5:80
+sudo iptables -t nat -L KUBE-SEP-XBSUSKRGZRORR4T6 -n
+# KUBE-MARK-MASQ 0 -- 192.168.1.6 0.0.0.0/0 /* default/nginx */
+# DNAT 6 -- 0.0.0.0/0 0.0.0.0/0 /* default/nginx */ tcp to:192.168.1.6:80
+La regla DNAT reescribe la IP destino del paquete de 10.99.20.216 a la IP real del Pod. A partir de ese momento, el kernel puede enrutarlo — la IP del Pod sí tiene una ruta en la tabla del nodo, puesta ahí por el plugin CNI. El paquete sale hacia el Pod.
+conntrack: el viaje de vuelta
+El Pod responde con su IP real como origen. El cliente envió el paquete a 10.99.20.216 — si recibiera una respuesta de 192.168.1.6, la conexión TCP fallaría. conntrack evita ese problema: cuando se aplica el DNAT, el kernel registra la traducción. Cuando llega la respuesta del Pod, conntrack la intercepta y reescribe automáticamente la IP de origen de vuelta a 10.99.20.216.
+Puedes verlo en vivo: haz el curl y corres conntrack justo después para capturar la entrada antes de que expire:
+curl http://10.99.20.216:80 > /dev/null
+sudo conntrack -L -p tcp --dport 80
+# tcp 6 118 TIME_WAIT
+# src=172.30.1.2 dst=10.99.20.216 sport=35180 dport=80
+# src=192.168.1.6 dst=192.168.0.0 sport=80 dport=55419 [ASSURED]
+La primera línea es la conexión vista desde el cliente: origen 172.30.1.2 (el nodo), destino 10.99.20.216:80 (la ClusterIP). La segunda línea es la respuesta del Pod tal como conntrack la registró: origen 192.168.1.6 (el Pod), destino 192.168.0.0 — la IP del nodo en la red de Pods, a la que fue masqueradeado el source original. Las dos líneas juntas son la misma conexión, vista desde los dos lados de la traducción.
+El flujo completo en tres pasos
+Resumiendo lo que ocurre a nivel de kernel cuando un cliente llama a http://10.99.20.216:80: el paquete TCP entra a KUBE-SERVICES y coincide con la regla del Service. Salta a KUBE-SVC-*, donde una regla estadística decide a cuál Pod enviarlo. Salta a KUBE-SEP-*, donde el DNAT reescribe la IP destino. conntrack registra la traducción. El paquete sale hacia el Pod con su IP real. La respuesta vuelve, conntrack la intercepta y reescribe el origen. El cliente cierra el ciclo.
+Ningún proceso de espacio de usuario estuvo involucrado en el camino del paquete. kube-proxy instaló las reglas, pero una vez instaladas, el kernel las aplica solo. Eso es lo que hace que el modelo escale.

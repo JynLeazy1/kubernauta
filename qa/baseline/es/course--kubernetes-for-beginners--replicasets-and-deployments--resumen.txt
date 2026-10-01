@@ -1,0 +1,26 @@
+Kubernetes para principiantes
+Capítulo 4 de 21 · Sección 7 de 7
+Resumen: Pod → ReplicaSet → Deployment
+Cerramos el capítulo de Deployments. Lo que en el capítulo 3 era un Pod efímero, ahora es una unidad gestionada con replicación, escalado y rollback. La cadena Deployment → ReplicaSet → Pod te da, casi gratis, las propiedades que la gente espera de "una app cloud-native".
+El mapa mental
+Tres niveles, cada uno con un trabajo específico:
+Pod: el entorno donde corren tus contenedores. Sin inteligencia propia, solo es la unidad mínima.
+ReplicaSet: el controller que mantiene N Pods que matcheen un selector. No actualiza imágenes, solo cuenta.
+Deployment: la capa de versiones encima del ReplicaSet. Cada cambio crea un nuevo RS y rota Pods entre el viejo y el nuevo. El viejo se queda con replicas: 0 como red de seguridad para rollbacks.
+Las labels son el pegamento que conecta todo: Deployment → ReplicaSet → Pod, y más adelante Service → Pod, NetworkPolicy → Pod, etc. Si las labels no matchean, el sistema no encuentra a sus partes.
+Lo que vimos, comprimido
+ReplicaSet: bucle que mantiene N Pods. Adopta cualquier Pod que matchee su selector.
+Deployment: añade strategy (RollingUpdate / Recreate) con maxSurge y maxUnavailable.
+Labels y selectors: matchLabels (equality) y matchExpressions (set). El selector del Deployment debe matchear las labels del template.
+Comandos diarios: kubectl scale, kubectl set image, kubectl rollout status/history.
+Rollback: kubectl rollout undo aprovecha los ReplicaSets viejos. revisionHistoryLimit controla cuántos se guardan.
+Claves KCNA del capítulo
+Deployment vive en apps/v1, igual que ReplicaSet, StatefulSet y DaemonSet.
+El selector del Deployment es inmutable después de crearlo. Si necesitas cambiarlo, hay que recrear el Deployment.
+Estrategia default: RollingUpdate con maxSurge: 25%, maxUnavailable: 25%. Tunealas según necesidad.
+Sin readinessProbe, un rolling update puede causar errores aunque sea técnicamente "rolling".
+Los ReplicaSets viejos se conservan según revisionHistoryLimit (default 10), con replicas: 0.
+kubectl rollout undo revierte a la revisión anterior; --to-revision=N a una específica.
+Qué viene
+Tienes ya cómo desplegar y mantener una app stateless. Pero las apps reales tienen configuración: variables de entorno, URLs de servicios externos, archivos de configuración, credenciales. Hardcodearlas en la imagen es un anti-patrón clásico (cada cambio requiere rebuild + nuevo rollout).
+El capítulo 5 (ConfigMaps y Secrets) arregla eso: cómo separar configuración del código, cómo inyectarla a tus Pods (vía env o volúmenes), y la diferencia real entre "un Secret" y "lo que la mayoría llamaría secreto" (spoiler: por defecto, los Secrets no son tan secretos como crees).

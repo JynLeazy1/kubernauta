@@ -1,0 +1,49 @@
+What is a Service?
+Part 3 of 10
+kube-proxy and Proxy Modes
+kube-proxy runs as a DaemonSet on every node in the cluster. It is not a proxy in the traditional sense — there is no intermediate process opening connections and forwarding them. Its job is more subtle: it watches for changes in the API and translates that desired state into kernel rules that intercept traffic.
+kubectl get pods -n kube-system -l k8s-app=kube-proxy -o wide
+# NAME READY STATUS NODE
+# kube-proxy-5knhs 1/1 Running node01
+# kube-proxy-fdcft 1/1 Running controlplane
+When you create a Service, kube-proxy detects it immediately via a watch against the API server — the same Informer mechanism used by kubelet. As soon as it receives the event, it syncs the node's rules to reflect the new state. kube-proxy's own logs show this process at startup:
+kubectl logs -n kube-system -l k8s-app=kube-proxy
+# "Starting endpoint slice config controller"
+# "Waiting for caches to sync" controller="endpoint slice config"
+# "Starting serviceCIDR config controller"
+# "Caches are synced" controller="service config"
+# "Caches are synced" controller="endpoint slice config"
+Every time a Pod appears, disappears, or changes its IP, kube-proxy updates the rules to point to the active endpoints. The mode in which it translates that state to the kernel has three variants.
+iptables mode (default)
+In iptables mode, kube-proxy creates chains and rules in the nat table of netfilter. Each Service generates a KUBE-SVC-* chain with statistical probability rules to distribute traffic among the available Pods. Each Pod (endpoint) has its own KUBE-SEP-* chain with the DNAT rule that rewrites the destination IP.
+Packet processing happens entirely in the kernel — kube-proxy only manages the rules from user space. The scaling problem is that iptables evaluates rules sequentially: with thousands of Services, a packet may need to traverse thousands of rules before finding the one that applies.
+The active mode is configured in the kube-proxy ConfigMap. An empty string means iptables:
+kubectl get configmap kube-proxy -n kube-system -o yaml | grep mode
+# mode: "" ← empty string = iptables by default
+IPVS mode (deprecated since 1.35)
+IPVS (IP Virtual Server) is a kernel module designed specifically for high-performance load balancing. Instead of iptables chains, it creates a hash table of virtual servers. Lookup is O(1) regardless of how many Services exist.
+kube-proxy in IPVS mode creates one virtual server per ClusterIP:port and one real server per Pod backend. The kernel does the DNAT directly from the hash table without traversing rules linearly. You can see the virtual servers with ipvsadm:
+# In iptables mode, ipvsadm shows nothing even if the binary is available
+sudo ipvsadm -Ln
+# IP Virtual Server version 1.2.1 (size=4096)
+# Prot LocalAddress:Port Scheduler Flags
+# -> RemoteAddress:Port Forward Weight ActiveConn InActConn
+# (empty — kube-proxy is in iptables mode, not IPVS)
+# In IPVS mode it would look like:
+# TCP 10.108.153.200:80 rr
+# -> 10.244.1.5:80 Masq 1 0 0
+IPVS was deprecated in Kubernetes 1.35 and may be removed in a future release. Clusters using IPVS should migrate to nftables. The official documentation and the deprecation KEP have the details.
+nftables mode (GA since 1.33, recommended mode)
+nftables is the successor to iptables in the Linux kernel. It uses compiled bytecode instead of sequentially evaluated rules, which improves performance and simplifies management. It was introduced as alpha in Kubernetes 1.29 and reached GA in 1.33. It follows the same conceptual model as iptables mode — chains and NAT rules — but with the kernel's more modern backend.
+nftables is the recommended mode for new installations on modern kernels (Linux 5.13 or later). However, for backward compatibility, iptables remains the default when the mode field is empty — the default change will not happen until a future version.
+How kube-proxy selects the mode
+The active mode is configured in the mode field of the kube-proxy ConfigMap. Valid values are "iptables", "ipvs", and "nftables". If the field is empty — which is the default in most clusters — kube-proxy does not fail or use an implicit fallback: there is a specific function that handles it. In cmd/kube-proxy/app/server_linux.go, platformApplyDefaults() makes exactly that comparison before kube-proxy starts:
+// cmd/kube-proxy/app/server_linux.go
+func (o *Options) platformApplyDefaults(config *proxyconfigapi.KubeProxyConfiguration) {
+if config.Mode == "" {
+o.logger.Info("Using iptables proxy")
+config.Mode = proxyconfigapi.ProxyModeIPTables
+}
+// ...
+ProxyModeIPTables is a string constant defined in pkg/proxy/apis/config/types.go: its value is simply "iptables". No magic — just a direct comparison against the empty string.
+In most production clusters today, the active mode is iptables. In the following sections we will dissect it in detail: exactly which chains it creates, how statistical load balancing works, and how to trace it in a real cluster.

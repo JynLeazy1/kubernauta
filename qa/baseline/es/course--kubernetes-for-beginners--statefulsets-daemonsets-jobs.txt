@@ -1,0 +1,26 @@
+Kubernetes para principiantes · Capítulo 13 de 21
+StatefulSets, DaemonSets y Jobs
+7 secciones
+En este capítulo
+01
+Introducción: cuándo un Deployment no alcanza
+→
+02
+StatefulSet: identidad estable y almacenamiento ordenado
+→
+03
+DaemonSet: un Pod por nodo
+→
+04
+Job: tareas que terminan
+→
+05
+CronJob: Jobs programados
+→
+06
+Cuándo elegir cuál
+→
+07
+Resumen
+→
+Empezar el capítulo →

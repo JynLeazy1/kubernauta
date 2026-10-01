@@ -1,0 +1,52 @@
+Kubernetes for Beginners
+Chapter 3 of 21 · Section 3 of 8
+Single-Container vs Multi-Container Pods
+In the chapter intro we mentioned a Pod can have more than one container. But it isn't always the right move. Knowing when a Pod should have just one and when it makes sense to stuff in two or three is one of the most important design decisions you'll make working with Kubernetes.
+The common case: one Pod, one container
+90% of the Pods you'll see in production have exactly one container. That's correct. Each Pod packages one application, and the application is one container. If you need to scale, you create more Pod replicas with a Deployment. If you need to move load to another node, another Pod starts somewhere else.
+This rule reads in reverse too: when in doubt, one Pod = one container. Throwing unrelated containers into the same Pod ties you to co-scheduling decisions you'll regret later (if one container needs more CPU, the whole Pod needs more CPU; if one fails, it can drag the other; if one must restart, so does the other).
+When multi-container does make sense
+One question almost always decides correctly: do these containers need to run on the same host, share network and/or files, and live and die together?
+If all three answers are yes, the Pod is the right place. If any is no, they're two Pods.
+Examples where multi-container is the idiomatic solution:
+Log shipper (fluent-bit, promtail) running next to an application that writes log files. The agent reads the same emptyDir volume the app writes to. A separate Pod wouldn't work — it couldn't see the files.
+Local proxy (Envoy, nginx) in front of a backend. The app talks to the proxy over localhost, and the proxy exposes the "public" interface to the Service. Service meshes like Istio are built exactly on this pattern.
+State init: a container that prepares files/config before the app starts. For this you use init containers (next sub-part).
+Reloader: a container that watches a Secret/ConfigMap and writes changes to a volume so the app can hot-reload without restarting.
+How containers in a Pod talk to each other
+Because they share namespaces, they have three natural channels:
+Network (localhost): they share the same IP and port space. Container A can open a server on :8080 and container B can curl localhost:8080 and it works. Caveat: two containers can't listen on the same port.
+Shared volumes: a volume declared in spec.volumes can be mounted in two containers at once. Useful for passing files without networking.
+IPC (if shareProcessNamespace is enabled): signals, semaphores, shared memory. Less common.
+What they do not share by default is the PID namespace — each container sees its own processes, not the neighbors'. You can change that with spec.shareProcessNamespace: true.
+Example: app + log sidecar with a shared volume
+apiVersion: v1
+kind: Pod
+metadata:
+name: web-with-log-shipper
+spec:
+containers:
+- name: web
+image: myapp:1.0
+volumeMounts:
+- name: logs
+mountPath: /var/log/app
+- name: log-shipper
+image: fluent-bit:3.0
+args: ["--tail", "/var/log/app/*.log"]
+volumeMounts:
+- name: logs
+mountPath: /var/log/app
+readOnly: true
+volumes:
+- name: logs
+emptyDir: {}
+Notice how both containers mount the same emptyDir. web writes it, log-shipper reads it. Both live and die with the Pod.
+Anti-patterns to avoid
+Common mistakes when someone overuses multi-container:
+Putting two apps that only speak HTTP to each other in the same Pod: if they can communicate over the network, they should be two Pods behind a Service. Forcing them into the same Pod couples them unnecessarily.
+Using a Pod as a "mini host": five containers with different purposes (frontend, backend, DB, cache, worker). That's not a Pod, that's a poorly disguised VM. One Deployment per component.
+Sharing an embedded DB: don't. The DB goes in its own Pod (ideally in a StatefulSet). Dropping SQLite next to your app is a hack you'll pay for with lost data.
+The practical rule
+If you can describe the two containers as "this is my app, and this one is a helper process that only exists to serve the first", you're on the right track. If you have to explain complex relationships between the containers, they're probably two different Pods.
+In the next sub-part we see the three classic multi-container patterns by name: init container, sidecar, and ambassador.

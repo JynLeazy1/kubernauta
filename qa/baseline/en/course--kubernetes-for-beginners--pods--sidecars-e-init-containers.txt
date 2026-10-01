@@ -1,0 +1,102 @@
+Kubernetes for Beginners
+Chapter 3 of 21 · Section 4 of 8
+Sidecars, Init Containers, and Ambassadors
+In the previous sub-part we said that when it makes sense to put more than one container in a Pod, there are three classic patterns with proper names: init container, sidecar, and ambassador. Let's go through them one at a time, with real YAML.
+Init containers
+An init container is a special container that runs before the Pod's main containers. If there are several, they run in order, sequentially. Each must finish successfully (exit 0) before the next starts, and only when all finish do the regular containers start.
+They're declared in their own field:
+spec:
+initContainers:
+- name: wait-for-db
+image: busybox:1.36
+command: ["sh", "-c"]
+args:
+- until nc -z db 5432; do echo "waiting for db"; sleep 2; done
+- name: db-migrate
+image: myapp-migrations:1.0
+env:
+- name: DATABASE_URL
+value: postgres://db:5432/myapp
+containers:
+- name: app
+image: myapp:1.0
+In this example the Pod doesn't start its app container until (1) the db service responds on port 5432 and (2) database migrations have run. If any init container fails, Kubernetes restarts the Pod from scratch according to the restartPolicy.
+Typical use cases for init containers:
+Wait for dependencies: a Service to be ready, a DB to accept connections.
+Migrations: run schemas, seeds, fixtures before booting the app.
+File setup: download config, generate certs, unpack artifacts into a shared volume.
+Permissions: fix ownership on a volume before the app — running as non-root — uses it.
+Sidecars
+A sidecar is a helper container that runs alongside the main container for the whole life of the Pod. Its job is to enhance the main one: capture logs, expose it behind a proxy, sync files, collect metrics — anything, but without making the main container change its code.
+Historically, sidecars were modeled as regular containers in the same Pod, which had an awkward side effect: in a Job, the sidecar would never finish. The main app exited 0, but the sidecar kept running, so the Job never marked itself completed. People worked around it by killing the sidecar manually.
+Since Kubernetes 1.29, there are native sidecars. They're init containers with restartPolicy: Always:
+spec:
+initContainers:
+- name: log-shipper
+image: fluent-bit:3.0
+restartPolicy: Always # ← what makes it a native sidecar
+volumeMounts:
+- name: logs
+mountPath: /var/log/app
+readOnly: true
+containers:
+- name: app
+image: myapp:1.0
+volumeMounts:
+- name: logs
+mountPath: /var/log/app
+volumes:
+- name: logs
+emptyDir: {}
+What this changes:
+The sidecar starts before the main container and stays running.
+When the main one exits (in a Job), Kubernetes kills the sidecar automatically.
+On Pod deletion, the main container terminates first and the sidecar after — reverse start order.
+Typical use cases for sidecars:
+Logging: fluent-bit, promtail, vector reading logs from a shared volume.
+Service mesh: Envoy / Linkerd intercepting all of the main container's network traffic.
+Config reload: a process watching Secrets/ConfigMaps and signaling the main one when they change.
+Backup: an agent periodically backing up the main container's state to external storage.
+Compatibility
+"Old-style" sidecars (regular containers running next to the main one) still work. The native form using restartPolicy: Always on init containers is the recommended one for new cases, and it's the only one that solves the immortal-sidecar problem in Jobs.
+Ambassador
+The ambassador is a special case of the sidecar: a local proxy that simplifies the main container's access to something external. Think: "the main container always talks to localhost:6379; the ambassador handles the rest".
+spec:
+containers:
+- name: app
+image: myapp:1.0
+env:
+- name: REDIS_URL
+value: redis://localhost:6379 # always localhost
+- name: redis-ambassador
+image: envoy:1.30
+args: ["--config-path", "/etc/envoy.yaml"]
+# Envoy rules to route localhost:6379
+# to the real Redis cluster (with TLS, retries, failover, etc.)
+The classic use was hiding the complexity of talking to an external service (TLS, retries, sharding) behind a trivial local endpoint. In practice, today this role is filled by service meshes (Istio, Linkerd) automatically injecting an Envoy sidecar into every Pod. The ambassador as an explicit pattern is used less, but it's worth recognizing for the KCNA.
+Combined example
+spec:
+initContainers:
+- name: db-migrate # init: runs and exits
+image: myapp-migrations:1.0
+- name: log-shipper # native sidecar
+image: fluent-bit:3.0
+restartPolicy: Always
+volumeMounts:
+- { name: logs, mountPath: /var/log/app, readOnly: true }
+containers:
+- name: app
+image: myapp:1.0
+volumeMounts:
+- { name: logs, mountPath: /var/log/app }
+- name: redis-ambassador # ambassador
+image: envoy:1.30
+volumes:
+- { name: logs, emptyDir: {} }
+This Pod has all three patterns. Init to prepare (migrations), sidecar to accompany (log shipping), ambassador to abstract (proxy to Redis). Each with a clear responsibility, all sharing the same Pod because they have to live together.
+For the KCNA
+Init containers: run first, in order, must finish OK.
+Sidecars: run alongside the main container for the Pod's whole life. Since 1.29, the native ones are declared in initContainers with restartPolicy: Always.
+Ambassador: a special case of sidecar that acts as a local proxy to something external.
+All share networking (localhost) and can share volumes with the main container.
+In the next sub-part we look at the Pod's lifecycle: phases, conditions, the three kinds of probes, and the restartPolicy that decides who restarts and when.

@@ -1,0 +1,81 @@
+Kubernetes for Beginners
+Chapter 3 of 21 · Section 6 of 8
+Essential Commands: get, describe, logs, exec
+If you could only take four commands to the KCNA exam and forget the rest, it would be: get, describe, logs, and exec. With those four you handle 90% of any real debugging. Let's go through them, then a couple of extras.
+kubectl get — list and query
+kubectl get pods
+kubectl get pod nginx
+kubectl get pods -o wide # adds node and IP
+kubectl get pods -A # all namespaces
+kubectl get pods -n kube-system
+kubectl get pods -l app=nginx # filter by label
+kubectl get pod nginx -o yaml # full YAML
+kubectl get pod nginx -o jsonpath='{.status.podIP}'
+Some details worth keeping in mind:
+-o wide adds useful columns (node, IP, nominated, readiness gates).
+-o yaml is the full object as it lives in etcd. Useful for seeing default fields the apiserver filled in.
+-o jsonpath='{.path.to.field}' extracts a specific field without jq. Good for scripts.
+-w turns on watch: the console stays open and reflects changes in real time.
+kubectl describe — the human-readable diagnosis
+kubectl describe pod nginx
+This is what you'll use most when something doesn't start. The output combines:
+Pod spec and status in readable form.
+Conditions with reasons and messages (what we saw in the previous sub-part).
+Each container's state (Running / Waiting / Terminated) with messages.
+Mounted volumes, events related to the Pod.
+Events at the end — the most useful section. Here you'll see FailedScheduling, ImagePullBackOff, FailedMount, etc., with timestamps and messages.
+Practical rule: if something isn't working, describe first. And read the Events. Most problems already have their explanation right there.
+kubectl logs — what the container printed
+kubectl logs nginx
+kubectl logs nginx -f # follow live (tail -f)
+kubectl logs nginx --previous # from the previous attempt (key on CrashLoopBackOff)
+kubectl logs nginx -c sidecar # specific container (multi-container Pods)
+kubectl logs nginx --tail=100 # last 100 lines
+kubectl logs nginx --since=10m # last 10 minutes
+kubectl logs -l app=nginx --max-log-requests=10 # from multiple Pods matching a label
+Three important details:
+--previous (alias -p) shows the logs of the previous container. Essential when a container crashes immediately: the current one has no useful logs, but the previous one does.
+-c <container> is required if the Pod has more than one container. Without it, kubectl asks you to pick.
+Logs come from the container's stdout/stderr — if your app writes to a file, you won't see them. That's why cloud-native apps always write to stdout.
+kubectl exec — get inside
+kubectl exec nginx -- ls /etc/nginx
+kubectl exec -it nginx -- /bin/sh
+kubectl exec -it nginx -c sidecar -- /bin/bash
+exec starts a process inside the container. With -it you get an interactive shell. Useful, but not for fixing things in production — changes are lost when the container restarts. Diagnostics only.
+If the container's image has no shell (distroless, scratch), exec fails. For those cases, the debug subcommand lets you attach an ephemeral container with whatever tools you need:
+kubectl debug nginx -it --image=busybox:1.36 --target=nginx
+Other useful commands
+kubectl apply and kubectl delete
+kubectl apply -f pod.yaml
+kubectl delete -f pod.yaml
+kubectl delete pod nginx
+kubectl delete pods -l app=nginx
+kubectl delete pod nginx --grace-period=0 --force # bypass terminationGracePeriod (last resort)
+kubectl port-forward
+Forwards a local port to a Pod, useful to access internal services without an Ingress:
+kubectl port-forward pod/nginx 8080:80
+# Now curl localhost:8080 reaches the nginx Pod on port 80.
+kubectl cp
+Copies files between your machine and a container (requires tar in the image):
+kubectl cp ./config.json nginx:/etc/nginx/config.json
+kubectl cp nginx:/var/log/nginx/access.log ./access.log
+kubectl run
+Creates an ad-hoc Pod — the fastest way to get a container for testing:
+kubectl run debug --rm -it --image=nicolaka/netshoot -- bash
+# Ephemeral Pod with networking tools, deleted on exit.
+A typical debugging session
+When something is off, the flow almost always is:
+kubectl get pods # which Pods, what state?
+kubectl get pods -o wide # which node?
+kubectl describe pod <name> # what do the Events say?
+kubectl logs <name> --previous # if it crashes, previous attempt's log
+kubectl exec -it <name> -- sh # if it's alive, get in and look
+kubectl get events --sort-by='.lastTimestamp' -n <ns> # namespace events
+Memorize those six and you'll handle the problems the exam — and your day-to-day — will throw at you.
+For the KCNA
+get: list; -o wide/yaml/jsonpath; -l; -A; -w.
+describe: narrative diagnosis, with Events at the bottom.
+logs: -f, --previous, -c, --tail, --since.
+exec -it <pod> -- sh: interactive shell. kubectl debug for distroless images.
+Extras: apply/delete, port-forward, cp, run.
+In the next sub-part we look at who manages Pods in production. Spoiler from the intro: not you.

@@ -1,0 +1,29 @@
+Kubernetes para principiantes · Capítulo 3 de 21
+Entendiendo los Pods de Kubernetes
+8 secciones
+En este capítulo
+01
+Introducción: un Pod no es un contenedor
+→
+02
+Anatomía del spec: lo que realmente declaras
+→
+03
+Pods de un solo contenedor vs multi-contenedor
+→
+04
+Sidecars, init containers y ambassadors
+→
+05
+Ciclo de vida: fases, probes y restartPolicy
+→
+06
+Comandos esenciales: get, describe, logs, exec
+→
+07
+Quién gestiona Pods en producción (Deployments, StatefulSets, Jobs)
+→
+08
+Resumen: el Pod como unidad mínima
+→
+Empezar el capítulo →

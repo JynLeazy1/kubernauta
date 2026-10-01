@@ -1,0 +1,80 @@
+Kubernetes for Beginners
+Chapter 4 of 21 · Section 4 of 7
+Labels and Selectors: The Glue of the Model
+If Kubernetes had an invisible type system, labels and selectors would be it. They're what connects things: ReplicaSet to its Pods, Service to its endpoints, NetworkPolicy to its rules. Without labels, every object in the cluster would be an island.
+What labels are
+A label is a key: value pair that lives under metadata.labels on any object. You use them to classify:
+metadata:
+name: web-7d4f
+labels:
+app: web
+tier: frontend
+environment: production
+version: "1.27"
+Rules to keep in mind:
+Keys can have a prefix (app.kubernetes.io/name) — useful to avoid clashes with other tools.
+Values are strings (numbers go in quotes).
+Multiple objects can share the same labels — that's exactly what makes them useful.
+What selectors are
+A selector is an expression that filters objects by their labels. There are two flavors:
+Equality-based
+selector:
+matchLabels:
+app: web
+tier: frontend
+Selects objects that have all those labels with those exact values. This is the syntax used by ReplicaSet, Service, NetworkPolicy.
+Set-based
+selector:
+matchExpressions:
+- key: tier
+operator: In
+values: [frontend, backend]
+- key: environment
+operator: NotIn
+values: [development]
+- key: critical
+operator: Exists
+More expressive: In, NotIn, Exists, DoesNotExist. Some objects (Deployment, StatefulSet, DaemonSet) accept this syntax in addition to matchLabels.
+How they're used in practice
+Every object with a selector field in its spec is pointing at a group of objects via their labels. A few cases:
+ReplicaSet → Pods: the RS counts as its own any Pods matching spec.selector.
+Service → Pods: the Service routes traffic to Pods matching its spec.selector. If the Pods change (die, scale), the Service updates by itself.
+Deployment → ReplicaSets → Pods: the Deployment uses labels (plus a pod-template-hash the controller adds) to tell the current RS apart from the previous one.
+NetworkPolicy → Pods: defines which Pods can talk to which others, identifying them by labels.
+This is why, when you write a Deployment, the selector.matchLabels must match the template.metadata.labels. Otherwise, the ReplicaSet that's created can't find its own Pods, and the system loops creating replicas that don't get counted.
+Filtering with kubectl
+Labels also let you filter from the command line:
+kubectl get pods -l app=web # equality
+kubectl get pods -l 'tier in (frontend,backend)' # set-based
+kubectl get pods -l 'environment!=development'
+kubectl get pods -l app=web,environment=production # AND of several
+kubectl get pods -l '!critical' # Pods without the critical label
+Combined with --all-namespaces and -o wide, this is a powerful search across the whole cluster.
+Annotations: look like labels, aren't
+There's a close cousin: annotations under metadata.annotations. Same key: value shape, different purpose:
+Labels — for selection. Kubernetes and controllers query them.
+Annotations — for metadata not used for selection. This is where you store info for external tools or humans: build IDs, config hashes, runbook links, whatever.
+metadata:
+labels:
+app: web # Kubernetes uses it
+annotations:
+deployment.kubernetes.io/revision: "5"
+git-commit: "a3f5d72"
+runbook: "https://wiki.example.com/web-runbook"
+If you're unsure whether something is a label or annotation, ask yourself: am I going to filter on this?. Yes → label. No → annotation.
+Recommended (standard) labels
+The official docs propose a set of common labels with the app.kubernetes.io/ prefix:
+app.kubernetes.io/name
+app.kubernetes.io/instance
+app.kubernetes.io/version
+app.kubernetes.io/component
+app.kubernetes.io/part-of
+app.kubernetes.io/managed-by
+They're not required, but using them lets tools like Helm, kustomize, Argo CD, and monitoring dashboards understand your resources with no extra config.
+For the KCNA
+Labels are key: value and are used for selection. Annotations are also key: value but are not used for selection.
+Selectors: matchLabels (equality) or matchExpressions (set: In, NotIn, Exists, DoesNotExist).
+A Deployment's spec.selector must match the labels in spec.template.
+kubectl get -l filters by label from the command line.
+app.kubernetes.io/* convention for common labels.
+In the next sub-part we look at the day-to-day commands: scale, update the image, watch the rollout, and the YAML that runs underneath when you do.

@@ -1,0 +1,26 @@
+Kubernetes para principiantes · Capítulo 6 de 21
+Namespaces: aislamiento y organización de recursos
+7 secciones
+En este capítulo
+01
+Introducción: el problema que resuelven
+→
+02
+Los namespaces por defecto: default, kube-system, kube-public
+→
+03
+Crear, listar y cambiar de namespace
+→
+04
+Recursos con namespace vs cluster-scoped
+→
+05
+ResourceQuota y LimitRange: controlar el consumo
+→
+06
+NetworkPolicy: aislamiento entre namespaces
+→
+07
+Resumen
+→
+Empezar el capítulo →

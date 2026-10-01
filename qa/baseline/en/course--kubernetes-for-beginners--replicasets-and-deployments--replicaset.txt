@@ -1,0 +1,61 @@
+Kubernetes for Beginners
+Chapter 4 of 21 · Section 2 of 7
+ReplicaSet: The Loop That Keeps N Replicas
+Let's start with the ReplicaSet. It's the simpler of the two pieces, and everything the Deployment does later sits on top of it. If you understand ReplicaSet, Deployment becomes "ReplicaSet with version superpowers".
+What it does, exactly
+A ReplicaSet has a one-line job: make sure there are always N Pods matching its selector. Where N is the replicas field and the selector is a set of labels.
+Its reconciliation loop, in pseudocode:
+while True:
+pods = api.list_pods(matching=selector)
+actual = len([p for p in pods if not p.deletionTimestamp])
+if actual < replicas:
+api.create_pod(template)
+elif actual > replicas:
+api.delete_pod(pick_one(pods))
+Illustrative pseudocode. The real implementation lives in kubernetes/pkg/controller/replicaset.
+That's it. It doesn't update images, doesn't rotate versions, doesn't do rolling updates. Just counts and fills the gap.
+ReplicaSet anatomy
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+name: web
+labels:
+app: web
+spec:
+replicas: 3
+selector:
+matchLabels:
+app: web
+template:
+metadata:
+labels:
+app: web # Pods created by the RS must match the selector
+spec:
+containers:
+- name: nginx
+image: nginx:1.27
+The three key fields:
+replicas: how many Pods you want.
+selector: which Pods count as the RS's. Any Pod in the namespace whose labels match the selector "belongs" to the ReplicaSet.
+template: the Pod spec that gets created when replicas are missing. The template's labels must match the selector — otherwise newly created Pods don't count, and the RS keeps making them forever. One of the classic mistakes.
+Adoption of stray Pods
+A weird but real property: if you create a Pod manually whose labels match an existing ReplicaSet's selector, that Pod gets adopted. The RS counts it as its own. If replicas was already satisfied, the RS will kill one (maybe yours, maybe another). If it was short, it counts the new one and stops creating more.
+Worth knowing to diagnose mysteries like "I created a Pod and it just disappeared". The explanation is usually: some label matches an existing selector.
+Why almost nobody creates them by hand
+A ReplicaSet on its own gives you self-healing and horizontal scaling — but not rolling updates. If you change spec.template.spec.containers[0].image on an existing ReplicaSet:
+Pods already running are not updated. They keep the old image.
+Only Pods the RS creates after the change use the new image.
+To force an update you'd have to kill Pods one by one and let the RS recreate them. It's manual, error-prone, and gives you no rollback. That's why Deployment exists.
+When you see an "orphan" ReplicaSet
+Every time a Deployment does a rolling update, it leaves the previous ReplicaSet behind with replicas: 0 — empty but present. This is on purpose: it lets you kubectl rollout undo and revive it. kubectl get rs will show something like:
+NAME DESIRED CURRENT READY AGE
+web-7c9f8c4d 0 0 0 2d
+web-9b8a7e6f 3 3 3 5h
+The first one is an "old" ReplicaSet from the web Deployment. It's not dead — it's asleep, in case you need it for a rollback. Cleaning these by hand can break the Deployment's revision history; let them be.
+For the KCNA
+A ReplicaSet keeps N Pods matching its selector. Nothing more.
+spec.template.metadata.labels must match spec.selector.matchLabels.
+Any Pod that matches the selector gets adopted.
+Changing the template's image does not rotate existing Pods.
+In practice, Deployments create ReplicaSets — you almost never write them by hand.
+In the next sub-part we see the Deployment in action: how it adds versions, how it orchestrates the rolling update, and the full chain Deployment → ReplicaSet → Pod.

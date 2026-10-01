@@ -1,0 +1,23 @@
+Kubernetes for Beginners · Chapter 20 of 21
+GitOps and CI/CD on Kubernetes
+6 sections
+In this chapter
+01
+Introduction: The Promise of GitOps
+→
+02
+CI vs CD: Where Kubernetes Begins
+→
+03
+Argo CD and Flux: The Two Axes
+→
+04
+Helm and Kustomize: How the App Is Packaged
+→
+05
+Progressive Rollouts and Deployment Safety
+→
+06
+Summary
+→
+Start the chapter →

@@ -1,0 +1,60 @@
+Kubernetes para principiantes
+Capítulo 2 de 21 · Sección 2 de 7
+Objetos, recursos y el loop de reconciliación
+Con la idea del contrato declarativo en mano, toca entender cómo el cluster la representa. Todo lo que existe en Kubernetes — un Pod, un Deployment, un Namespace, un Secret — se expresa como un objeto. Y cada objeto tiene una estructura muy específica, pensada justamente para el modelo declarativo.
+Objeto vs recurso: la distinción que sí importa
+Las palabras objeto y recurso se usan casi como sinónimos en la práctica, pero en la API tienen significado distinto.
+Un recurso (resource) es un tipo: pods, deployments, services. Es una entrada en el catálogo de la API. Cuando haces kubectl api-resources, lo que ves es la lista de recursos.
+Un objeto (object) es una instancia concreta de ese tipo: "mi Pod nginx-7d en el namespace default".
+Analogía rápida: "recurso" es la clase, "objeto" es la instancia. En el día a día mezclas los términos sin problema, pero cuando leas documentación oficial o mensajes de error, vale la pena reconocerlos bien.
+La anatomía: spec y status
+Cada objeto en Kubernetes tiene dos secciones centrales:
+spec — lo que tú declaras. El estado que quieres.
+status — lo que el cluster reporta. El estado observado.
+Ejemplo rápido con un Deployment:
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+name: nginx
+spec:
+replicas: 3 # deseado
+selector:
+matchLabels:
+app: nginx
+template:
+# ... definición del Pod
+status:
+replicas: 3 # actual
+readyReplicas: 2 # ¡todavía 1 no listo!
+updatedReplicas: 3
+conditions:
+- type: Available
+status: "True"
+La pregunta que te hace Kubernetes es: ¿spec == status?. Si sí, no hay nada que hacer. Si no, algún controller debería estar trabajando para que converjan.
+La regla de oro: tú no tocas status
+Este es uno de los malentendidos más comunes en cursos mal enseñados. Tú nunca escribes status. Es un campo que pertenece al cluster: los controllers lo reportan, el apiserver lo persiste, y los clientes (incluido kubectl) lo leen.
+Si escribes status en tu YAML y lo aplicas, el apiserver lo acepta pero el primer controller que reconcilie ese objeto lo sobrescribirá. Pensar que editas status directamente es creer que puedes mentirle al cluster sobre el estado real — y el cluster siempre va a corregirte.
+Detalle técnico
+Los controllers actualizan status mediante el subrecurso /status del objeto. Existe justamente para separar esa operación de las mutaciones normales de spec. Herramientas como kubectl ocultan esa separación; si alguna vez lees código de un controller verás llamadas como client.Pods().UpdateStatus(...) distintas de Update(...).
+El loop de reconciliación, visto por un objeto
+Ahora puedes ver el loop de reconciliación — que mencionamos muchas veces en el capítulo anterior — desde la óptica del objeto:
+Un cliente declara spec (vía kubectl apply).
+El apiserver persiste el objeto en etcd.
+Un controller vigila cambios en ese tipo de recurso y ve el objeto nuevo o modificado.
+El controller compara spec con el estado real observado en el cluster.
+Si difieren, el controller actúa (creando, modificando o borrando otros objetos).
+El controller actualiza status para reflejar lo que observó.
+Vuelve al paso 3.
+Ese loop, cuando se mira desde arriba con decenas de controllers corriendo a la vez, es lo que produce la sensación de que "Kubernetes simplemente funciona".
+metadata y los campos universales
+Además de spec y status, todo objeto tiene metadata, que es donde vive la información de identidad y organización:
+name — único dentro de su namespace/alcance.
+namespace — si el recurso es namespaced.
+labels — pares key/value que se usan para selección (selectors).
+annotations — pares key/value para metadatos que no se usan para seleccionar; los usan herramientas y humanos.
+uid — identificador único asignado por el apiserver.
+resourceVersion — la versión del objeto, crucial para el modelo watch y para detectar conflictos.
+ownerReferences — qué otro objeto "es dueño" de este (un ReplicaSet es dueño de sus Pods, por ejemplo).
+La diferencia entre labels y annotations es clave: los labels se consultan con selectors (kubectl get pods -l app=nginx) y son parte del modelo de datos. Las annotations son texto libre — ahí guardas info útil para otras herramientas (versión del release, tracking ID, lo que quieras) pero que Kubernetes no interpreta.
+Ya tienes la pieza central
+Spec, status, metadata. Esos tres campos explican el 90% del modelo declarativo. Lo que veremos en el resto del capítulo son refinamientos: cómo se agrupan los recursos por API (sub-parte siguiente), cómo se construyen los controllers que cierran el loop, y cómo puedes extender la API con tus propios tipos.

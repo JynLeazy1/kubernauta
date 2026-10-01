@@ -1,0 +1,25 @@
+Kubernetes para principiantes
+Capítulo 1 de 21 · Sección 1 de 7
+Introducción: qué es realmente un cluster
+Nota sobre el idioma
+La gran mayoría de los recursos de Kubernetes — la documentación oficial, el material de la CNCF, el examen KCNA y las discusiones de la comunidad — están en inglés. Para que lo que aprendas aquí se traslade sin fricción a esas fuentes, los términos técnicos se mantienen en inglés: control plane, worker node, kubelet, Pod, Service, Deployment, etc. La prosa alrededor va en español, pero los nombres oficiales no se traducen.
+Ya sé, otro curso de Kubernetes (de los que parecen tediosamente largos y con mucho texto). Este también lo es — el reto está en que no se sienta así. Nos quedamos en los conceptos básicos, los explicamos lo más simple posible, y los acompañamos con humor, ejemplos y analogías. No es la documentación oficial; es una guía para entender qué hace cada pieza sin perder el camino. Vamos a zarpar en este viaje — fun fact: kubernetes viene del griego κυβερνήτης (timonel, piloto, de ahí también la palabra "gobernar"); en esta página lo adaptamos a Kubernauta, algo así como "el que navega Kubernetes".
+Si abres la documentación de K8s, lo primero que vas a ver es un diagrama de cómo está estructurado el cluster. Si nunca habías oído hablar de Kubernetes — ¿cómo llegaste hasta acá? — o solo lo conoces de nombre como un orquestador de contenedores, ese diagrama probablemente no te diga gran cosa: aparecen kube-proxy, kubelet, kube-apiserver y otros nombres extraños, sin pista de para qué sirven o con qué se comen. En este primer capítulo es justo lo que vamos a desarmar.
+¿Qué es un cluster?
+Un cluster, simplemente, es un conjunto de computadoras o máquinas, ya sean físicas o virtuales, unidas para cumplir un objetivo en común. A cada una le llamaremos nodo. En el caso de Kubernetes, esos nodos corren Linux, y su objetivo es gestionar las aplicaciones que despliegues sobre él. Para lograrlo, los nodos se dividen básicamente en dos tipos: los del control plane, que son quienes deciden qué pasa, y los worker nodes, que son quienes corren tus aplicaciones.
+Componentes de un cluster de Kubernetes. Fuente: kubernetes.io — Cluster Components.
+Lo curioso es que el cluster se ve como una sola entidad. Si no lo conoces, podrías pensar que es como cualquier otra aplicación que instalas con apt install. En realidad es un conjunto de componentes, y cada uno necesita su propia instalación para funcionar.
+Los componentes del cluster
+Como mencionamos antes, el cluster tiene dos tipos de nodos: los del tipo control plane y los del tipo worker node. Cada tipo se arma con sus propios componentes — pequeños procesos que, en conjunto, hacen que el cluster funcione.
+En el control plane están kube-apiserver, etcd, kube-scheduler y kube-controller-manager. Si el cluster vive en una nube (AWS, GCP, Azure), se suma un quinto invitado: el cloud-controller-manager, que habla con la API del proveedor para pedir cosas como balanceadores y volúmenes.
+Del lado de los worker nodes la lista es más corta: kubelet, un container runtime y kube-proxy.
+Profundizar
+El rol de kube-proxy, las reglas que programa en el kernel y el camino completo de un paquete los cubrimos a fondo en el tutorial ¿Qué es un Service?.
+Lo que vamos a ver en este capítulo
+El control plane a fondo: kube-apiserver, etcd, kube-scheduler y kube-controller-manager — qué hace cada uno y por qué están separados.
+Los worker nodes a fondo: kubelet, el container runtime y kube-proxy — cómo una máquina Linux se convierte en un nodo del cluster.
+El flujo completo: qué pasa exactamente entre que tecleas kubectl apply y tu contenedor empieza a correr.
+etcd: la base de datos que guarda todo el estado, y por qué es el corazón (y el talón de Aquiles) del cluster.
+Alta disponibilidad: por qué el control plane no puede ser una sola máquina si quieres dormir tranquilo.
+Al terminar, cuando veas un diagrama de arquitectura de Kubernetes, no vas a ver un dibujo: vas a ver componentes, conexiones HTTP y un bucle de reconciliación trabajando. Y eso, en buena parte, es el examen KCNA: saber qué hace cada pieza y por qué está ahí.
+Si quieres la referencia oficial mientras avanzamos, tenla a mano: Cluster Components — kubernetes.io.

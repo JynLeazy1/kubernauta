@@ -1,0 +1,23 @@
+Kubernetes para principiantes · Capítulo 7 de 21
+Runtimes y la CRI: del YAML al proceso en el kernel
+6 secciones
+En este capítulo
+01
+Introducción: qué ejecuta realmente tus contenedores
+→
+02
+runc, containerd y CRI-O: las piezas
+→
+03
+La Container Runtime Interface (CRI) y su propósito
+→
+04
+El camino de kubelet al runtime
+→
+05
+OCI: imágenes y runtime-spec
+→
+06
+Resumen
+→
+Empezar el capítulo →

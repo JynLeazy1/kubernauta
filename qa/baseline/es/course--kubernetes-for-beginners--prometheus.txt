@@ -1,0 +1,23 @@
+Kubernetes para principiantes · Capítulo 19 de 21
+Prometheus y el modelo pull
+6 secciones
+En este capítulo
+01
+Introducción: el modelo pull y el target
+→
+02
+ServiceMonitor y kube-prometheus-stack
+→
+03
+PromQL en 10 minutos
+→
+04
+Alerting: AlertManager y receivers
+→
+05
+Grafana: visualización estándar
+→
+06
+Resumen
+→
+Empezar el capítulo →

@@ -1,0 +1,38 @@
+Kubernetes for Beginners
+Chapter 1 of 21 · Section 5 of 7
+etcd: The Cluster's Source of Truth
+We have mentioned etcd in almost every sub-part. Time to open it up. Because even though it's technically not "part of" Kubernetes — it's a graduated CNCF project with its own life — without it there is no cluster. Delete etcd, and the cluster ceases to exist.
+What etcd is
+etcd is a distributed key-value database, built to store the configuration state of distributed systems. It's not a general-purpose database: it doesn't run complex queries, it has no joins, it doesn't support multi-document transactions. What it does do, it does very well:
+Store and retrieve values by key (like /registry/pods/default/my-pod).
+Guarantee strong consistency: what you just wrote, you read.
+Notify interested clients when a key changes — the famous watch.
+Survive a node failure if the cluster has enough nodes.
+Kubernetes uses all four relentlessly. Every object you define (Deployment, Pod, ConfigMap, …) is stored as a key. Every component (apiserver, controllers, kubelet) subscribes to watches on the keys it cares about.
+Raft: how it survives failures
+A single etcd node is a single point of failure. That's why it's deployed in clusters of 3 or 5 nodes that coordinate using the Raft algorithm.
+Raft's idea, in a few words: the nodes elect a leader, all writes go through it, and it replicates them to the others (followers). A write is considered successful only when the majority has acknowledged it. That rule — majority — defines how many failures you can tolerate:
+3 nodes → tolerate 1 down (majority = 2).
+5 nodes → tolerate 2 down (majority = 3).
+7 nodes → tolerate 3 down, but writes become slow due to replication cost.
+That's why in production you almost always see etcd in 3 or 5 nodes. More doesn't help: it adds latency without a meaningful tolerance gain.
+One important detail: the number of nodes is always odd. With an even number you gain nothing in tolerance and you do raise replication cost. With 4 nodes, majority is still 3 (same as 5), so it's waste.
+The watch model
+This is the mechanism that makes Kubernetes' reactive architecture possible. A client tells etcd "notify me whenever any key under /registry/pods/ changes", and etcd sends a notification per change — indefinitely, until the client closes the connection.
+The apiserver is the one doing watches on etcd. The other components (scheduler, kubelet, controllers) watch the apiserver, not etcd directly. The apiserver acts as a "multiplexer": it gets one watch from etcd and forwards it to every interested client.
+This keeps etcd protected: it has only one real client, the apiserver.
+Why etcd is the Achilles' heel
+All cluster state lives in etcd. All of it. If etcd goes down or gets corrupted, your cluster loses memory of what should be running. Current Pods stay alive on the nodes — kubelet doesn't kill them — but the control plane goes blind:
+You can't create or modify anything.
+Controllers can't reconcile (the apiserver isn't responding).
+If state is lost to corruption, recovery requires a restore from a snapshot.
+That's why backing up etcd is one of the most critical tasks of operating Kubernetes. etcdctl snapshot save is the command you should have scheduled and monitored in production.
+Typical etcd size is small (hundreds of MB for medium clusters), but it grows with the number of objects. Deployments with many historical ReplicaSets, old Jobs, events — everything counts.
+What you need to know for the KCNA
+The exam is not going to ask you to debug etcd, but it will expect you to know:
+It's a key-value store, not a relational database.
+It uses Raft and requires an odd number of nodes for quorum.
+It's the only source of truth for the cluster.
+Only the apiserver talks to it.
+It's the most critical piece to back up.
+In the next sub-part we close the chapter with the topic we left pending: high availability. What happens if the server where the entire control plane — including etcd — runs goes down?

@@ -1,0 +1,24 @@
+Kubernetes for Beginners
+Chapter 4 of 21 · Section 1 of 7
+Introduction: Why You Don't Use Pods Directly
+The previous chapter closed with a key line: in production, Pods are created and watched by a controller. Time to open the most-used one of all: the Deployment. And to understand it, we first need to see its internal piece, the ReplicaSet.
+The problem they solve
+Picture this: you put a Pod in a cluster with kubectl apply -f my-app.yaml. It works, serves traffic, all good. What happens when:
+The node where it runs goes down?
+The app's process crashes?
+You need to go from 1 replica to 10?
+You have to update the image with no downtime?
+You shipped the wrong version and need to roll back?
+Short answer: the Pod alone solves none of that. What solves it is the Deployment, leaning on its right hand, the ReplicaSet.
+The pair: ReplicaSet and Deployment
+Two-line summary:
+ReplicaSet: a controller whose single job is "there are always exactly N Pods matching this selector". Fewer? It creates. More? It deletes.
+Deployment: a layer on top of ReplicaSet that adds versions: each change creates a new ReplicaSet and migrates Pods between the old and new ones. What we call a rolling update.
+Almost nobody creates ReplicaSets directly — the Deployment manages them underneath. But it's worth knowing the piece, because when something fails and you run kubectl get rs, you'll see two or three ReplicaSets the Deployment left behind. Knowing what they are prevents panic.
+What we'll cover
+ReplicaSet: how the "keep N replicas" loop works from the inside.
+Deployment: the version layer on top of ReplicaSet, with its typical YAML.
+Labels and selectors: the model's glue. Without this, nothing else works.
+Scale and update: day-to-day commands (kubectl scale, kubectl set image).
+Rollback: how to revert when a version goes bad.
+By the end, you'll be able to read a Deployment manifest, explain what happens when you apply a change, and know exactly how to recover the cluster when a broken image lands in production. Which happens more often than you think.

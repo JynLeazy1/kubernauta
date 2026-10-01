@@ -1,0 +1,23 @@
+Kubernetes for Beginners · Chapter 15 of 21
+Autoscaling: HPA, VPA, and Cluster Autoscaler
+6 sections
+In this chapter
+01
+Introduction: Scaling Vertically and Horizontally
+→
+02
+HPA: Horizontal Pod Autoscaler
+→
+03
+VPA: Vertical Pod Autoscaler
+→
+04
+Cluster Autoscaler: Scaling the Nodes
+→
+05
+Metrics Server: The Base That Feeds the HPA
+→
+06
+Summary
+→
+Start the chapter →

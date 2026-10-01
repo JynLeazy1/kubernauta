@@ -1,0 +1,74 @@
+Kubernetes para principiantes
+Capítulo 3 de 21 · Sección 5 de 8
+Ciclo de vida: fases, probes y restartPolicy
+Hasta acá hablamos del Pod en estado estable: arrancado, corriendo. Pero en la realidad un Pod es un objeto con etapas: nace, se arranca, puede fallar, puede sanar, eventualmente muere. Entender esa máquina de estados es la diferencia entre "se rompió mi Pod" y "el Pod está en CrashLoopBackOff porque el liveness probe falla en el segundo 5".
+Phases: el resumen de una palabra
+Cada Pod tiene un campo status.phase que es uno de estos cinco valores:
+Pending: el apiserver aceptó el Pod pero todavía no está corriendo. Puede estar esperando ser asignado a un nodo, descargando imágenes, o ejecutando init containers.
+Running: asignado a un nodo, al menos un contenedor corriendo (o reiniciándose).
+Succeeded: todos los contenedores terminaron con éxito y no van a reiniciarse.
+Failed: todos los contenedores terminaron, al menos uno con error y sin reintentos pendientes.
+Unknown: kubelet no responde — el control plane no sabe qué pasa.
+La phase es solo un resumen alto. Para diagnosticar de verdad hay que mirar las conditions.
+Conditions: el detalle real
+El status.conditions es una lista que dice si el Pod cumple ciertas condiciones específicas. Las cuatro estándar:
+PodScheduled: ¿le asignó nodo el scheduler?
+Initialized: ¿corrieron y terminaron los init containers?
+ContainersReady: ¿están todos los contenedores listos según sus probes?
+Ready: el Pod entero está listo para recibir tráfico (depende de ContainersReady + posibles readiness gates).
+kubectl describe pod <name> te muestra estos campos. Cada condition tiene un status (True/False) y, si es False, un reason y message que dicen por qué. Es la primera parada cuando algo no arranca.
+Las tres clases de probes
+Un probe es una pregunta que kubelet le hace al contenedor periódicamente: "¿estás bien?". Hay tres clases, cada una con un propósito distinto:
+livenessProbe
+Pregunta: "¿el contenedor sigue vivo?". Si falla, kubelet reinicia el contenedor. Útil para detectar deadlocks, memory leaks que dejan el proceso vivo pero inutil, o estados zombi.
+livenessProbe:
+httpGet:
+path: /healthz
+port: 8080
+initialDelaySeconds: 15
+periodSeconds: 10
+failureThreshold: 3
+En este ejemplo, kubelet espera 15 segundos después del arranque, después hace GET /healthz:8080 cada 10 segundos. Si falla 3 veces seguidas, mata el contenedor (que el restartPolicy decide si se vuelve a arrancar).
+readinessProbe
+Pregunta: "¿está listo para recibir tráfico?". Si falla, kubelet no reinicia nada — solo marca el Pod como NotReady, lo que quita su IP de los endpoints de las Services que lo seleccionaban.
+readinessProbe:
+httpGet:
+path: /ready
+port: 8080
+initialDelaySeconds: 5
+periodSeconds: 5
+Útil cuando un contenedor está vivo pero no listo: cargando un modelo de ML, calentando cachés, esperando que un cliente DB se conecte. Quieres que siga corriendo, pero que no le caigan requests todavía.
+startupProbe
+Pregunta: "¿ya terminó de arrancar?". Mientras esté corriendo, deshabilita los otros dos probes. Útil para apps con arranque lento (legacy, JVM, modelos grandes) donde un livenessProbe agresivo las mataría antes de que terminen de iniciar.
+startupProbe:
+httpGet:
+path: /healthz
+port: 8080
+failureThreshold: 30
+periodSeconds: 10
+# Da hasta 30 × 10s = 5 minutos para arrancar.
+Tipos de probe
+Cualquiera de los tres puede ser:
+httpGet: hace un GET HTTP a un path/puerto. Status 2xx o 3xx = éxito.
+tcpSocket: intenta abrir una conexión TCP al puerto. Conecta = éxito.
+exec: ejecuta un comando dentro del contenedor. Exit 0 = éxito.
+grpc: usa el protocolo gRPC Health Checking estándar.
+HTTP es el más común y suele ser la opción correcta. exec tiene su lugar pero es más caro (crea un proceso por probe).
+restartPolicy
+Define qué hace kubelet cuando un contenedor termina (con o sin error). Solo aplica al contenedor — el Pod en sí mismo no "se reinicia"; lo que se reinicia son sus contenedores dentro del mismo Pod.
+Always (default): cualquier salida — éxito o fallo — desencadena un reinicio. Es lo correcto para Deployments y StatefulSets, donde la app debe estar siempre corriendo.
+OnFailure: reinicia solo si el contenedor terminó con código distinto a 0. Default para los Jobs que usan backoffLimit.
+Never: nunca reinicia. El Pod queda en Succeeded o Failed según el exit code y se queda ahí hasta que alguien lo borre.
+Detalle importante: cuando kubelet reinicia un contenedor, no recrea el Pod. Conservas la misma IP, los mismos volúmenes, las mismas conexiones a sus contenedores hermanos. Solo el proceso del contenedor se levanta de nuevo.
+CrashLoopBackOff: el síntoma más común
+Cuando un contenedor falla repetidamente y kubelet lo intenta reiniciar, lo hace con backoff exponencial: 10s, 20s, 40s, hasta un tope de 5 minutos entre intentos. Mientras está esperando antes del próximo intento, el contenedor está en estado CrashLoopBackOff.
+Es el estado que vas a ver cuando: la imagen no existe, falta una variable de entorno crítica, el comando es incorrecto, el liveness probe falla apenas arranca, etc. kubectl logs --previous <pod> es tu mejor amigo aquí: te muestra los logs del intento anterior al actual, que suelen tener el error real.
+Para la KCNA
+Phases: Pending → Running → Succeeded/Failed/Unknown.
+Conditions: PodScheduled, Initialized, ContainersReady, Ready.
+livenessProbe falla → reinicia el contenedor.
+readinessProbe falla → quita IP de endpoints (no reinicia).
+startupProbe corre solo al arranque, deshabilita liveness/readiness mientras tanto.
+restartPolicy: Always (default), OnFailure, Never.
+CrashLoopBackOff = backoff exponencial entre reintentos.
+En la siguiente sub-parte vemos los comandos del día a día: get, describe, logs, exec. Tu kit mínimo para diagnosticar todo lo que vimos hasta acá.

@@ -1,0 +1,26 @@
+Kubernetes for Beginners · Chapter 1 of 21
+Kubernetes Architecture: Control Plane, Nodes, and the Request Flow
+7 sections
+In this chapter
+01
+Introduction: What a Cluster Really Is
+→
+02
+The Control Plane: apiserver, etcd, scheduler, controller-manager
+→
+03
+Worker Nodes: kubelet, kube-proxy, and the Runtime
+→
+04
+The Request Flow: From kubectl apply to Running Container
+→
+05
+etcd: The Cluster's Source of Truth
+→
+06
+High Availability: Why the Control Plane Is Not a Single Machine
+→
+07
+Summary: The Complete Mental Map
+→
+Start the chapter →

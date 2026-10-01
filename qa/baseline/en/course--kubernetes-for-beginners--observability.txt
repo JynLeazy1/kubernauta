@@ -1,0 +1,23 @@
+Kubernetes for Beginners · Chapter 18 of 21
+Logs, Metrics, and Traces: The Three Pillars
+6 sections
+In this chapter
+01
+Introduction: What Observability Is and Isn't
+→
+02
+Logs: stdout/stderr, Drivers, and Aggregation
+→
+03
+Metrics: Pull vs Push Model
+→
+04
+Traces: OpenTelemetry as the Standard
+→
+05
+Events and kubectl describe: The First Debug Layer
+→
+06
+Summary
+→
+Start the chapter →

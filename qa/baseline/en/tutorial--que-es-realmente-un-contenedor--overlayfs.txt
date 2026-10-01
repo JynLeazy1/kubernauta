@@ -1,0 +1,56 @@
+What exactly is a Container?
+Part 5 of 9
+OverlayFS: The Layered Filesystem Behind Container Images
+A Docker image is not a monolithic file. It is a stack of read-only layers. When you start a container, the runtime adds a read-write layer on top. All of this is OverlayFS, a union filesystem included in the kernel since version 3.18.
+The four OverlayFS directories
+lowerdir → read-only layers (the image)
+upperdir → read-write layer (container changes)
+workdir → internal working directory (same filesystem as upper)
+merged → the mount point the process sees
+Mounting an overlay manually
+mkdir -p /tmp/overlay/{lower,upper,work,merged}
+# Base content in the lower layer
+echo "original file" > /tmp/overlay/lower/file.txt
+echo "lower only" > /tmp/overlay/lower/lower-only.txt
+# Mount the overlay
+sudo mount -t overlay overlay \
+-o lowerdir=/tmp/overlay/lower,\
+upperdir=/tmp/overlay/upper,\
+workdir=/tmp/overlay/work \
+/tmp/overlay/merged
+# From merged you see everything
+cat /tmp/overlay/merged/file.txt # "original file"
+cat /tmp/overlay/merged/lower-only.txt # "lower only"
+# Modify a file
+echo "modified" > /tmp/overlay/merged/file.txt
+# The original in lower did NOT change
+cat /tmp/overlay/lower/file.txt # "original file"
+# The modified copy is in upper (copy-on-write)
+cat /tmp/overlay/upper/file.txt # "modified"
+Copy-on-write (CoW)
+The original file is never touched. On the first write, the kernel copies the entire file from the lower layer into upperdir (this is called copy-up) and applies the change to that copy. The lower layer remains immutable — this is what allows multiple containers to share the same image layers without interfering with each other.
+It is important to understand that copy-up happens at the whole-file level, not at the block level: writing 1 byte to a 1 GB file triggers copying all 1 GB into upperdir. This is why containers with databases or bulky logs benefit from volumes (-v) instead of writing on top of the overlay layer.
+Official references:
+Linux kernel documentation — overlayfs — Non-directories: "When a file in the lower filesystem is accessed in a way that requires write-access... the file is first copied from the lower filesystem to the upper filesystem (copy_up)."
+Docker Engine — How the overlay2 driver works: "The performance impact of the copy_up operation can be significant for large files. For this reason, consider using Docker volumes for write-heavy workloads."
+Note
+Since kernel 4.19, the metacopy=on mount option enables metadata-only copy-up (permissions, ownership) without copying the contents. But the moment file contents are modified, the full copy becomes unavoidable.
+When you delete a file from lowerdir, OverlayFS creates a whiteout in upperdir: a character device file with major/minor 0,0 that acts as "this file does not exist":
+rm /tmp/overlay/merged/lower-only.txt
+ls -la /tmp/overlay/upper/
+# c--------- 1 root root 0, 0 lower-only.txt ← char device 0,0 = whiteout
+The real configuration of a Docker container
+docker inspect demo | jq '.[0].GraphDriver'
+{
+"Data": {
+"ID": "eb4982ca6e37f2c95ad5412c20e45a9b2c54b3f22c6e31513989bca7e5806fab",
+"LowerDir": "/var/lib/docker/overlay2/1629751375ad26b1a67d2cc9008985d421f2b48efe2b1990e94d2661a105dc79-init/diff:/var/lib/docker/overlay2/e30fade0c171491f998205340eea35c3d6feb2870c3da11602fea5e4eb592587/diff:/var/lib/docker/overlay2/60950e861baa6ad9a6fe59f71935f5c3f0d9457908547d35754d075bcbcee056/diff:/var/lib/docker/overlay2/957a97e1c487c04e116095368e478717b60bf2dff4acfea16c779fa9a7c453b3/diff:/var/lib/docker/overlay2/ab385398c1d6e6adcb340bc60f726644090a14e41c62b5ae6168db40594b6b9e/diff:/var/lib/docker/overlay2/0fe27ae5fe60703cf59b79ce1544c0cf5435768b13c383773dee6f4f8dae5099/diff:/var/lib/docker/overlay2/c97f8b48a1cc267f04d1d907cf0c2ec703f35d6a429b97e19914b5cbf186f85c/diff:/var/lib/docker/overlay2/86fe8cf33e603677274ce2bb98da06b5726a03e9b846d3f8897440619afa580d/diff:/var/lib/docker/overlay2/86efbbb5fd4fd3007e78af94c3bcdc247e68b30ac81b247b48890971ece5dc17/diff",
+"MergedDir": "/var/lib/docker/overlay2/1629751375ad26b1a67d2cc9008985d421f2b48efe2b1990e94d2661a105dc79/merged",
+"UpperDir": "/var/lib/docker/overlay2/1629751375ad26b1a67d2cc9008985d421f2b48efe2b1990e94d2661a105dc79/diff",
+"WorkDir": "/var/lib/docker/overlay2/1629751375ad26b1a67d2cc9008985d421f2b48efe2b1990e94d2661a105dc79/work"
+},
+"Name": "overlay2"
+}
+The LowerDir has 9 entries separated by : — each is a layer of the nginx image, ordered from most recent to oldest. They are immutable and shared among all containers using the same image. Only the UpperDir is unique per container.
+The -init layer
+Note the layer with the -init suffix at the beginning of LowerDir. Docker inserts it between the image and the container's upperdir. It contains files that Docker manages and that should not persist across container recreations: /etc/hostname, /etc/hosts, /etc/resolv.conf. This is the layer that gives each container its own hostname without modifying the base image.

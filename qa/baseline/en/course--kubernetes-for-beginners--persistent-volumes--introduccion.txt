@@ -1,0 +1,44 @@
+Kubernetes for Beginners
+Chapter 12 of 21 · Section 1 of 7
+Introduction: State in an Ephemeral World
+Why ephemeral storage isn't enough
+By default, a container's filesystem is ephemeral — it dies with the Pod. This is perfect for stateless applications, but unacceptable for databases, message queues, or any workload that must survive restarts.
+PersistentVolume (PV)
+A PersistentVolume is a storage resource provisioned by an administrator (or dynamically by a StorageClass). It exists independently of any Pod's lifecycle.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+name: pv-demo
+spec:
+capacity:
+storage: 5Gi
+accessModes:
+- ReadWriteOnce
+hostPath:
+path: /mnt/data
+PersistentVolumeClaim (PVC)
+A PersistentVolumeClaim is a user's request for storage. Kubernetes finds a PV that satisfies the requirements (size, access modes) and binds them together.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+name: my-pvc
+spec:
+accessModes:
+- ReadWriteOnce
+resources:
+requests:
+storage: 2Gi
+Using a PVC in a Pod
+volumes:
+- name: data
+persistentVolumeClaim:
+claimName: my-pvc
+containers:
+- name: app
+volumeMounts:
+- mountPath: /data
+name: data
+StorageClasses and dynamic provisioning
+In production, manually creating PVs is rare. Cloud providers offer StorageClasses that automatically provision disks when a PVC is created. Just specify storageClassName in your claim and Kubernetes handles the rest.
+Conclusion
+PV/PVC give stateful workloads the persistent storage they need, with a clear separation of responsibilities: the administrator provides capacity, the developer claims it.

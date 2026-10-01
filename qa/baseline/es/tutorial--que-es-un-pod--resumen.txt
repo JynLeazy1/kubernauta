@@ -1,0 +1,48 @@
+¿Qué es un Pod?
+Parte 10 de 10
+Resumen: el mapa completo
+Empezamos diciendo que un Pod no es un contenedor. Terminamos habiendo construido uno a mano con unshare, pivot_root y OverlayFS. En el medio recorrimos cada capa que lo compone.
+El mapa completo
+El kernel es la base. Los namespaces — net, IPC y UTS compartidos entre todos los contenedores del Pod; PID y mnt propios de cada uno — son la razón por la que los contenedores pueden comunicarse por localhost sin ser el mismo proceso. Los cgroups definen los límites de CPU y memoria que el kernel aplica por contenedor.
+El contenedor pause sostiene esos namespaces compartidos. Es un proceso de 743 KB que no hace nada excepto existir y manejar señales — su único propósito es ser el ancla del Pod. Si un contenedor de la aplicación muere, solo ese contenedor se reinicia; el pause y sus namespaces siguen intactos, la IP del Pod no cambia.
+Sobre esa red, el plugin CNI crea el veth pair y asigna la IP. Es un binario que el runtime invoca con variables de entorno y un JSON por stdin — sin servidor, sin protocolo largo.
+El spec del Pod es la traducción de todo lo anterior a YAML. resources.limits se convierte en cpu.max y memory.max en el cgroup. securityContext se convierte en setuid, no_new_privs y flags de capabilities. volumeMounts son bind mounts antes del pivot_root.
+kubelet es el reconciliador. Traduce el spec a llamadas CRI — RunPodSandbox, CreateContainer, StartContainer — y mantiene el estado real del nodo alineado con lo que declaró el usuario.
+El flujo de extremo a extremo
+kubectl apply
+→ API server guarda el Pod en etcd
+→ scheduler asigna nodeName
+→ kubelet detecta el Pod
+→ CRI: RunPodSandbox → pause + namespaces (net/ipc/uts)
+→ CNI plugin → veth pair + IP asignada
+→ CRI: CreateContainer × N → contenedores entran al sandbox
+→ CRI: StartContainer × N → pivot_root + exec del proceso
+→ kubelet loop → probes + reporte de estado
+Evidencia acumulada
+La serie no es solo teoría — a lo largo de las partes ejecutamos experimentos que comprueban cada tesis:
+El pause es el dueño del netns, no los containers de aplicación. En la parte 3, lsns -p <pid_pause> muestra NPROCS=3 para los namespaces compartidos (net, ipc, uts) y NPROCS=1 para los propios (mnt, pid). El proceso nginx aparece en la lista del netns del pause, pero su /proc/<pid>/ns/net es un symlink al inode del pause — confirmando que se une, no que posee.
+Solo el contenedor que muere se reinicia. El manifest test-restart.yaml de la parte 3 tiene un container app que crashea cada 10 segundos y un sidecar que escribe un timestamp cada 2 segundos. kubectl get pod -w muestra el ciclo 2/2 Running → 1/2 Error → 1/2 CrashLoopBackOff → 2/2 Running sin que kubectl logs sidecar tenga ningún gap. La IP del Pod tampoco cambia.
+El YAML se materializa en archivos del kernel. En la parte 6 tomamos un Pod con resources.limits.cpu: 500m y limits.memory: 256Mi; los archivos del cgroup correspondiente reportan cpu.max = 50000 100000 y memory.max = 268435456, exactamente las dimensiones declaradas en YAML.
+Calico no usa bridge. En la parte 5, ip link show type veth revela interfaces cali...@if3 con MAC ee:ee:ee:ee:ee:ee que no están enganchadas a ningún bridge. ip route get <pod-ip> muestra una ruta /32 dedicada apuntando directamente al veth — la diferencia arquitectónica con Flannel/cni0.
+La relación con el tutorial anterior
+Si venías del tutorial de contenedores, ahora puedes ver la jerarquía completa:
+Nodo físico / VM
+└── kubelet
+└── Pod (unidad de scheduling)
+├── Namespaces compartidos (net, ipc, uts)
+├── Contenedor pause — sostiene los namespaces
+├── Init containers — secuenciales, terminan antes del arranque
+└── Contenedores regulares
+├── OverlayFS propio (lowerdirs = capas de imagen, upperdir = escrituras)
+└── cgroup propio (cpu.max, memory.max)
+Lo que no cubrimos
+Admission controllers y webhooks — la vía por la que controladores como Istio inyectan sidecars antes de que el Pod llegue a kubelet, y por la que tools como Kyverno/OPA Gatekeeper aplican políticas antes del schedule.
+Downward API — cómo pasar metadatos del Pod (nombre, namespace, labels, IP) al proceso vía variables de entorno o archivos en un volume.
+Ephemeral containers — el mecanismo de kubectl debug para inyectar containers temporales en un Pod en vivo, útil para imágenes distroless.
+Scheduling avanzado — nodeSelector, taints/tolerations, affinity/anti-affinity, topology spread constraints, PriorityClass y preempción. La parte 4 cubre que el scheduler asigna el nodo, no cómo elige.
+Romper aislamiento intencionalmente — hostNetwork, hostPID, hostIPC, hostPath, privileged: true. Útiles para agentes de nodo (Calico, kube-proxy, observability), peligrosos en cargas de aplicación.
+Pod Disruption Budgets y graceful node shutdown — cómo Kubernetes coordina drains para no dejar workloads sin réplicas mínimas.
+OCI Image Spec y supply chain — qué es un manifest, cómo se firman imágenes, content addressability. Cubrimos el filesystem que producen, no la spec de distribución.
+Conclusión
+La próxima vez que alguien diga que un Pod es la unidad mínima de cómputo de Kubernetes, podrás explicar por qué es así: qué namespaces crea el kernel, qué rol cumple el contenedor pause, cómo el CNI asigna la red, y cómo cada campo del spec se traduce en una primitiva del sistema operativo que los contenedores heredan al unirse al sandbox.
+Y si alguien intenta venderte que "Kubernetes es magia", ya tienes la respuesta: no, son cuatro o cinco syscalls del kernel encadenadas por kubelet vía un proto de gRPC, materializándose en archivos del kernel que puedes leer con cat.

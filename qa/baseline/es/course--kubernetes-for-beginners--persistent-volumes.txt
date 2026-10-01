@@ -1,0 +1,26 @@
+Kubernetes para principiantes · Capítulo 12 de 21
+Persistent Volumes y PVCs explicados
+7 secciones
+En este capítulo
+01
+Introducción: estado en un mundo efímero
+→
+02
+Volumes vs PersistentVolumes
+→
+03
+El ciclo PV → PVC → Pod
+→
+04
+Access modes: RWO, ROX, RWX, RWOP
+→
+05
+StorageClass y provisioning dinámico
+→
+06
+ReclaimPolicy y lifecycle
+→
+07
+Resumen
+→
+Empezar el capítulo →

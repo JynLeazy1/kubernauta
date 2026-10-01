@@ -1,0 +1,99 @@
+April 10, 2026
+How to Migrate kube-proxy to nftables Mode
+kube-proxy
+nftables
+networking
+kubernetes
+Since Kubernetes 1.33, nftables is the recommended mode for kube-proxy. It is not the default yet — iptables remains the default when the mode field is empty — but it is the direction the project is heading. IPVS was deprecated in 1.35. This guide covers migrating from iptables to nftables on an existing cluster.
+Prerequisite: check the kernel version
+nftables requires Linux 5.13 or later. Older kernels do not have full support for the features kube-proxy needs in nftables mode. Before touching any configuration, check the kernel on each node:
+uname -r
+# 6.8.0-107-generic
+Any kernel 5.13+ works. Ubuntu 22.04 LTS ships 5.15, Ubuntu 24.04 ships 6.8, Debian 12 ships 6.1 — all are fine. If any node has an older kernel, the kernel upgrade needs to come first.
+You can also verify that the nf_tables module is loaded:
+lsmod | grep nf_tables
+# nf_tables 376832 565 nft_compat,nft_chain_nat
+# nfnetlink 20480 12 nft_compat,nfnetlink_acct,nf_conntrack_netlink,nf_tables,ip_set
+# libcrc32c 12288 5 nf_conntrack,nf_nat,btrfs,nf_tables,raid456
+On modern kernels the module loads automatically when needed — no manual action required.
+Current state: iptables mode
+Before migrating, confirm the active mode. The kube-proxy ConfigMap shows the mode field:
+kubectl get configmap kube-proxy -n kube-system -o yaml | grep -A2 "mode:"
+# mode: ""
+# iptables:
+# masqueradeAll: false
+An empty string means iptables by default — the platformApplyDefaults() function in server_linux.go converts it to "iptables" before starting.
+Edit the ConfigMap
+The full migration is a single change in the ConfigMap:
+kubectl edit configmap kube-proxy -n kube-system
+Find the mode field and change it to "nftables":
+# Before:
+# mode: ""
+# After:
+mode: "nftables"
+Save and exit. The ConfigMap is updated in the API server, but the kube-proxy Pods are still running with the old configuration — they do not reload the ConfigMap on the fly. They need a restart.
+Rollout restart the DaemonSet
+kubectl rollout restart daemonset kube-proxy -n kube-system
+# daemonset.apps/kube-proxy restarted
+kubectl rollout status daemonset kube-proxy -n kube-system
+# daemon set "kube-proxy" successfully rolled out
+The rollout updates Pods one at a time. While an old Pod is terminating and the new one is starting, there is a brief window on that node where rules are being regenerated. Established connections are not dropped — conntrack remembers existing translations — but new connections during that window may take an extra cycle to be processed.
+Verify the active mode
+The definitive signal is sudo nft list ruleset: if table ip kube-proxy appears, the rules are active in the kernel.
+On a cluster using Calico as the CNI, the output includes warnings about tables managed by iptables-nft — those come from Calico, not kube-proxy, and are expected:
+sudo nft list ruleset | grep -A5 "kube"
+# Warning: table ip nat is managed by iptables-nft, do not touch!
+# Warning: table ip filter is managed by iptables-nft, do not touch!
+# ...
+# table ip kube-proxy {
+# comment "rules for kube-proxy"
+# set cluster-ips {
+# type ipv4_addr
+# comment "Active ClusterIPs"
+# elements = { 10.96.0.1, 10.96.0.10 }
+# }
+# map service-ips {
+# type ipv4_addr . inet_proto . inet_service : verdict
+# comment "ClusterIP dispatch"
+# elements = { 10.96.0.10 . tcp . 53 : goto service-NWBZK7IH-kube-system/kube-dns/tcp/dns-tcp,
+# 10.96.0.10 . udp . 53 : goto service-FY5PMXPG-kube-system/kube-dns/udp/dns,
+# 10.96.0.1 . tcp . 443 : goto service-2QRHZV4L-default/kubernetes/tcp/https }
+# }
+# chain service-FY5PMXPG-kube-system/kube-dns/udp/dns {
+# ip daddr 10.96.0.10 ip saddr != 192.168.0.0/16 jump mark-for-masquerade
+# numgen random mod 2 vmap { 0 : goto endpoint-O6ON3DXL-kube-system/kube-dns/udp/dns__192.168.1.2/53,
+# 1 : goto endpoint-IHIQWJ7L-kube-system/kube-dns/udp/dns__192.168.1.3/53 }
+# }
+# chain endpoint-O6ON3DXL-kube-system/kube-dns/udp/dns__192.168.1.2/53 {
+# ip saddr 192.168.1.2 jump mark-for-masquerade
+# meta l4proto udp dnat to 192.168.1.2:53
+# }
+# }
+The model differs from iptables. Instead of chains named KUBE-SVC-HASH, there is a map service-ips that dispatches with a single hash table lookup. Each Service has a service-HASH-namespace/name/proto/port chain, and each Pod backend has an endpoint-HASH-namespace/name/proto/port__podIP/podPort chain. Load balancing uses numgen random mod N — a random number modulo N — to distribute traffic across backends.
+You can also confirm that the iptables chains no longer exist:
+sudo iptables -t nat -L KUBE-SERVICES -n 2>/dev/null | wc -l
+# 0
+# (the KUBE-SERVICES chain no longer exists — kube-proxy stopped writing to iptables entirely)
+Verify that Services still work
+The mode change is transparent to applications. Create a Deployment, expose its port as a Service, and curl the ClusterIP:
+kubectl create deployment nginx --image=nginx
+kubectl expose deployment nginx --port 80
+kubectl get svc nginx
+# NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+# nginx ClusterIP 10.106.195.187 <none> 80/TCP 27s
+curl http://10.106.195.187:80
+# <!DOCTYPE html>
+# <html>
+# <head><title>Welcome to nginx!</title>...
+# ...
+If the response comes back, the full stack — EndpointSlices, kube-proxy in nftables mode, CNI — is working correctly.
+Reverting if something goes wrong
+If something does not work as expected, reverting is the same process in reverse. Edit the ConfigMap and go back to the previous mode:
+kubectl edit configmap kube-proxy -n kube-system
+# Change: mode: "nftables"
+# To: mode: ""
+kubectl rollout restart daemonset kube-proxy -n kube-system
+kubectl rollout status daemonset kube-proxy -n kube-system
+kube-proxy switches back to iptables mode, regenerates the rules, and the nftables entries disappear. Applications do not notice the change.
+A note on the default change
+nftables is the recommended mode but is not yet the default — when mode is empty, kube-proxy picks iptables. That default change is planned for a future version. For now, using nftables requires explicit configuration as described in this guide.

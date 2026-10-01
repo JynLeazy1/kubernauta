@@ -1,0 +1,36 @@
+Kubernetes for Beginners
+Chapter 1 of 21 · Section 7 of 7
+Summary: The Complete Mental Map
+Wrapping up the chapter. If you went through the whole thing, you now have a picture that isn't a generic internet diagram — it's a mental model of processes, connections, and loops. Let's recap.
+The cluster, in one page
+A Kubernetes cluster is Linux machines running specific processes. Nothing more, nothing less.
+On the control plane, four processes run:
+kube-apiserver — the single door. Authenticates, authorizes, validates, persists to etcd.
+etcd — the memory. Distributed key-value store with Raft.
+kube-scheduler — the assigner. Decides which node each Pod runs on.
+kube-controller-manager — the reconciliation loops (Deployment, ReplicaSet, Node, Job, …).
+When the cluster lives on a cloud, the cloud-controller-manager is added, talking to the provider's API.
+On every worker node, three processes run:
+kubelet — the local agent. Reconciles Pods assigned to its node.
+A container runtime (containerd, CRI-O) — creates containers via CRI.
+kube-proxy — programs network rules so Services work.
+The rule that ties it all together
+Only the kube-apiserver talks to etcd. Every other component is an apiserver client. They subscribe to changes (watch) and react. Nobody talks to anybody directly: coordination flows through etcd, exposed via the apiserver.
+That rule is what lets the system scale, stay asynchronous, and survive failures. Keep it in mind through every chapter ahead: every time you see a new kind of object (StatefulSet, Ingress, Job, …) the pattern is the same. Somebody declares, a controller reconciles, the apiserver arbitrates.
+The flow, compressed
+A kubectl apply triggers this chain:
+apiserver validates and writes to etcd.
+Controllers see the change and create derived objects (ReplicaSet, Pods).
+Scheduler sets nodeName on each Pod.
+kubelet on the chosen node asks the runtime to create the containers.
+Runtime brings up pause + containers with namespaces and cgroups.
+kube-proxy programs network rules if Services exist.
+At every step, all that happens is: read state, compare to desired, write the diff. A reconciliation loop, repeated at different layers.
+High availability, in one sentence
+In production you never run a single-machine control plane. 3 or 5 nodes, a stateless apiserver behind an LB, etcd with quorum, scheduler and controller-manager with leader election. Workers survive control plane outages.
+What's next
+This chapter was the topography of the cluster: what runs where and why. Chapter 2 goes one layer deeper: how the Kubernetes API actually works and what the declarative model we've been talking about really means. From there on, every chapter opens one of the objects (Pods, Deployments, Services, …) through the same lens: what it declares, what controller reconciles it, what happens in the kernel.
+For the KCNA
+If you had to take one thing from this chapter to the exam, let it be this:
+Kubernetes is not magic. It's an apiserver in front of a database, with an army of controllers reacting to changes, and one kubelet per node translating objects into Linux processes.
+Everything else is implementation detail.

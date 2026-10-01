@@ -1,0 +1,93 @@
+What is a Pod?
+Part 7 of 10
+Multi-Container Pods: Sidecars and Init Containers
+A note on terminology: In this section we use the word "volume" to refer to both ephemeral volumes (like emptyDir) and persistent volumes mounted via PVC. The mechanics of sharing between containers are the same in both cases — the difference is in the data lifecycle, not in how the Pod uses it.
+Now that you know all containers in a Pod live in the same network namespace (inherited from pause), the multi-container model makes concrete sense. It is not just "multiple processes in the same Pod" — it is multiple processes sharing network interfaces, communicating over localhost, and seeing the same network filesystem. What differs between containers is the PID namespace and the OverlayFS.
+Init containers
+Init containers are the tool for "preparation before startup". They run sequentially, one by one, and the Pod does not move to regular containers until all of them exit with code 0.
+spec:
+initContainers:
+- name: wait-for-db
+image: busybox
+command: ["sh", "-c", "until nc -z db 5432; do sleep 1; done"]
+- name: migrate-db
+image: flyway:latest
+command: ["flyway", "migrate"]
+env:
+- name: FLYWAY_URL
+value: jdbc:postgresql://db:5432/myapp
+containers:
+- name: app
+image: my-app:1.0
+At the kernel level, each init container is a CreateContainer + StartContainer on the same podSandboxID. It shares the pause's network namespace (same IP, same eth0), but has its own PID namespace and its own OverlayFS. When it exits, kubelet calls StopContainer and only then starts the next one.
+A common pattern is to use an init container to write to a volume that the main container reads at startup:
+volumes:
+- name: config
+emptyDir: {}
+initContainers:
+- name: render-config
+image: busybox
+command: ["sh", "-c", "echo 'server_name: prod' > /config/app.yaml"]
+volumeMounts:
+- name: config
+mountPath: /config
+containers:
+- name: app
+image: my-app:1.0
+volumeMounts:
+- name: config
+mountPath: /etc/app
+The sidecar pattern
+A sidecar is a regular container that runs in parallel with the main container for the entire lifetime of the Pod. The reason it can intercept traffic or read logs is directly the namespace model:
+Same network: both have the pause's eth0 → they can communicate over localhost and the sidecar can intercept ports
+Shared volumes: if they mount the same volume → the sidecar can read what the app writes
+Log shipping example with Fluentd:
+spec:
+volumes:
+- name: logs
+emptyDir: {}
+containers:
+- name: app
+image: my-app:1.0
+volumeMounts:
+- name: logs
+mountPath: /var/log/app
+- name: log-shipper
+image: fluent/fluentd:v1.16
+volumeMounts:
+- name: logs
+mountPath: /var/log/app
+The app writes to /var/log/app. The log-shipper reads from the same directory. Both use the same bind mount of the volume on the host — the kernel duplicates nothing.
+Service mesh: Istio and the network namespace
+The most sophisticated case is a network proxy like the Istio sidecar. Istio automatically injects an istio-proxy container (Envoy) into every Pod in the mesh via an admission webhook. This proxy can intercept all of the Pod's traffic because it shares the network namespace:
+spec:
+containers:
+- name: app
+image: my-app:1.0
+- name: istio-proxy
+image: istio/proxyv2:1.20
+# Reconfigures iptables inside the Pod's network namespace
+# to redirect all traffic through the proxy
+Istio uses an init container (istio-init) to configure iptables rules inside the Pod's network namespace before the app starts. Because the network namespace is shared, those rules affect all containers. To verify it on the node, first get the netns inode through the pause's PID, then list every process sharing that inode:
+# Get the pause PID (the Pod's sandbox container)
+PAUSE_PID=$(crictl inspect $(crictl pods --name my-app -q) | jq '.info.pid')
+# Inode of the netns the pause holds
+readlink /proc/${PAUSE_PID}/ns/net
+# net:[4026532603]
+# List EVERY process on the node living in that netns:
+lsns 4026532603
+# NS TYPE NPROCS PID USER COMMAND
+# 4026532603 net 3 67325 65535 /pause ← netns owner
+# 67452 root app
+# 67891 1337 envoy-proxy ← same netns as
+# pause and app
+NPROCS=3 confirms three processes share that single network namespace. Running iptables -t nat -L -n via nsenter -t ${PAUSE_PID} --net shows exactly the rules istio-init installed — they affect all traffic in or out of any of the three processes.
+Native sidecar containers (Kubernetes 1.29+)
+Until Kubernetes 1.28, sidecars were regular containers and had a problem: there was no guarantee they would start before the main container. Since 1.29, there is a native sidecar type:
+spec:
+initContainers:
+- name: envoy-proxy
+restartPolicy: Always # ← this makes it a native sidecar
+image: envoy:latest
+An init container with restartPolicy: Always becomes a sidecar container — it starts before regular containers (like an init container), but does not exit when they start (like a regular container). kubelet keeps it alive for the entire Pod lifetime and restarts it if it dies. We will cover restartPolicy in detail in the next section.
+Do not overuse sidecars: Every additional container consumes its own resources and adds complexity to the spec. A DaemonSet for the node log agent is usually better than a sidecar in every Pod.

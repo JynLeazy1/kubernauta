@@ -1,0 +1,197 @@
+¿Qué es un Pod?
+Parte 3 de 10
+El contenedor pause: el ancla de los namespaces del Pod
+Hay un contenedor en cada Pod que nunca aparece en tu kubectl get pods, que no escribes en tu YAML, y que es el primero en arrancar y el último en morir. Se llama pause, y es el motivo por el que un Pod puede existir como concepto.
+El problema que resuelve
+Cuando diseñaron Pods, los ingenieros de Kubernetes enfrentaron un problema fundamental: los namespaces de Linux pertenecen a procesos. Si quieres que dos contenedores compartan un namespace de red, alguien tiene que crear ese namespace y mantenerlo vivo aunque los contenedores de la aplicación terminen y se reinicien.
+La solución fue un proceso separado, mínimo y estable, cuyo único trabajo es sostener los namespaces del Pod. Ese proceso es el contenedor pause.
+¿Qué hace el contenedor pause?
+Literalmente nada, y eso es por diseño. Su código fuente en C tiene 68 líneas en total, incluyendo licencia y comentarios:
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+static void sigdown(int signo) {
+psignal(signo, "Shutting down, got signal");
+exit(0);
+}
+static void sigreap(int signo) {
+while (waitpid(-1, NULL, WNOHANG) > 0) // Reaper: evita procesos zombie
+;
+}
+int main(int argc, char **argv) {
+if (getpid() != 1)
+fprintf(stderr, "Warning: pause should be the first process
+");
+sigaction(SIGINT, &(struct sigaction){.sa_handler = sigdown}, NULL);
+sigaction(SIGTERM, &(struct sigaction){.sa_handler = sigdown}, NULL);
+sigaction(SIGCHLD, &(struct sigaction){.sa_handler = sigreap,
+.sa_flags = SA_NOCLDSTOP}, NULL);
+for (;;)
+pause(); // Duerme indefinidamente, sin consumir CPU
+return 42;
+}
+El reaper de zombies: El contenedor pause también maneja SIGCHLD, lo que lo convierte en el PID 1 del Pod. En Linux, cuando un proceso padre muere antes que sus hijos, esos hijos son adoptados por PID 1. Si PID 1 no llama a waitpid(), los hijos terminados se quedan como procesos zombie. El pause los recolecta.
+La imagen de pause
+El Dockerfile lo dice todo:
+ARG BASE
+FROM ${BASE}
+ARG ARCH
+ADD bin/pause-linux-${ARCH} /pause
+USER 65535:65535
+ENTRYPOINT ["/pause"]
+Sin shell, sin utilidades, sin nada más que el binario /pause compilado estáticamente. No puedes ejecutar ls adentro porque no existe — intentarlo deja el proceso colgado hasta que Ctrl+C dispara el handler de SIGINT. Para inspeccionar el filesystem, lo extraemos como hicimos con Alpine en el tutorial anterior:
+docker create --name pause-inspect registry.k8s.io/pause:3.9
+mkdir -p /tmp/pause && docker export pause-inspect | tar -xC /tmp/pause
+docker rm pause-inspect
+tree /tmp/pause
+# .
+# ├── dev
+# │ ├── console
+# │ ├── pts
+# │ └── shm
+# ├── etc
+# │ ├── hostname
+# │ ├── hosts
+# │ ├── mtab -> /proc/mounts
+# │ └── resolv.conf
+# ├── pause
+# ├── proc
+# └── sys
+Inspeccionamos cada archivo:
+cat /tmp/pause/etc/hostname # vacío
+cat /tmp/pause/etc/hosts # vacío
+cat /tmp/pause/etc/resolv.conf # vacío
+ls /tmp/pause/proc/ # vacío
+# etc/mtab es un symlink a /proc/mounts.
+# Fuera del contenedor el symlink resuelve al /proc/mounts del host,
+# por eso parece tener contenido. Una vez que kubelet monte /proc
+# dentro del namespace del Pod, resolverá al /proc/mounts propio.
+# El binario pause es un ELF estático:
+cat -v /tmp/pause/pause | head -1
+# ^?ELF^B^A^A^C ... ← cabecera ELF, binario compilado estáticamente
+Un binario ELF de 743 KB y un esqueleto de filesystem completamente vacío. Los directorios dev/, proc/ y sys/ son puntos de montaje que el runtime llenará en tiempo de ejecución. Los archivos de etc/ los sobreescribirá kubelet con los datos del Pod (hostname, DNS). La imagen en sí no contiene nada más que el binario.
+Cómo kubelet usa el contenedor pause
+Cuando kubelet recibe la instrucción de crear un Pod, sigue esta secuencia:
+Llama al container runtime (containerd) para crear el contenedor pause con todos los namespaces del Pod: red, IPC, UTS.
+El runtime crea un network namespace nuevo, configura la interfaz eth0 y le asigna la IP del Pod.
+Para cada contenedor definido en el spec, kubelet crea el contenedor indicándole que se una al namespace de red del contenedor pause (--net=container:<pause-id>).
+Los contenedores de la aplicación arrancan ya con la red configurada, sin tener que hacer nada ellos mismos.
+# Esto es lo que hace internamente (equivalente conceptual con Docker):
+# 1. Arrancar el contenedor pause (crea y sostiene los namespaces)
+docker run -d --name pause \
+--net=none \ # Sin red todavía, CNI la configura después
+registry.k8s.io/pause:3.9
+# 2. El plugin CNI configura la red en el namespace del pause
+# (crea veth pair, asigna IP, configura rutas)
+# 3. Los contenedores de la app se unen a los namespaces del pause
+docker run -d --name app \
+--net=container:pause \ # Comparte red con pause
+--ipc=container:pause \ # Comparte IPC con pause
+nginx:alpine
+Verificando el pause en un cluster real
+Empezamos levantando un Pod simple:
+kubectl run nginx --image=nginx
+# pod/nginx created
+kubectl get pod nginx
+# NAME READY STATUS RESTARTS AGE
+# nginx 1/1 Running 0 10s
+Ahora entramos al nodo y buscamos el pause. El primer intento intuitivo es crictl ps — pero no aparece:
+crictl ps
+# CONTAINER IMAGE STATE NAME POD
+# 37221f4dbe035 nginx:latest Running nginx nginx ← solo app containers
+# fd492c6850486 alpine:latest Running sidecar test-restart
+crictl filtra los pod sandboxes por diseño. Para verlos hay que usar crictl pods, que lista los sandboxes directamente — cada entrada es un contenedor pause:
+crictl pods
+# POD ID STATE NAME NAMESPACE
+# 646f857e8367a Ready nginx default
+# c1fda029d8005 Ready test-restart default
+O bien usar ctr, el cliente nativo de containerd. Por defecto apunta al namespace default — los contenedores de Kubernetes viven en el namespace k8s.io:
+ctr c list # vacío — apunta al namespace default
+ctr namespaces list # NAME / k8s.io
+ctr -n k8s.io c list
+# CONTAINER IMAGE RUNTIME
+# 00e7e9ae18f0... registry.k8s.io/pause:3.5 io.containerd.runc.v2
+# 37221f4dbe035... docker.io/library/nginx io.containerd.runc.v2
+# c1fda029d8005... registry.k8s.io/pause:3.5 io.containerd.runc.v2
+# fd492c68504867... docker.io/library/alpine io.containerd.runc.v2
+# ...
+Ahora el dato interesante. Obtenemos el PID del proceso nginx en el host y listamos sus namespaces:
+crictl inspect 37221f4dbe035 | grep '"pid"'
+# "pid": 1, ← PID 1 dentro de su propio namespace
+# "pid": 67452, ← PID real en el host
+ps -p 67452 -o pid,ppid,comm,args
+# PID PPID COMMAND ARGS
+# 67452 67302 nginx nginx: master process nginx -g daemon off;
+# Ver todos los namespaces del proceso nginx como symlinks
+ls -la /proc/67452/ns
+# lrwxrwxrwx cgroup -> 'cgroup:[4026532671]'
+# lrwxrwxrwx ipc -> 'ipc:[4026532667]'
+# lrwxrwxrwx mnt -> 'mnt:[4026532669]'
+# lrwxrwxrwx net -> 'net:[4026532603]'
+# lrwxrwxrwx pid -> 'pid:[4026532670]'
+# lrwxrwxrwx pid_for_children -> 'pid:[4026532670]'
+# lrwxrwxrwx time -> 'time:[4026531834]'
+# lrwxrwxrwx time_for_children -> 'time:[4026531834]'
+# lrwxrwxrwx user -> 'user:[4026531837]'
+# lrwxrwxrwx uts -> 'uts:[4026532666]'
+# nginx solo POSEE 3 namespaces propios: mnt, pid, cgroup
+lsns | grep nginx
+# 4026532669 mnt 2 67452 root nginx: master process...
+# 4026532670 pid 2 67452 root nginx: master process...
+# 4026532671 cgroup 2 67452 root nginx: master process...
+Net, IPC y UTS no aparecen — nginx no los posee, solo se une a ellos. El dueño es el pause. Si tomamos el ID del netns de nginx (net:[4026532603]) y listamos todos los procesos que lo comparten:
+lsns 4026532603
+# PID PPID USER COMMAND
+# 67325 67302 65535 /pause ← dueño del namespace
+# 67452 67302 root nginx: master process nginx -g... ← se une al namespace
+# 67489 67452 ... nginx: worker process
+Y si listamos todos los namespaces del proceso pause:
+lsns -p 67325
+# NS TYPE PID USER COMMAND
+# 4026532603 net 3 65535 /pause ← dueño: net compartido del Pod
+# 4026532665 mnt 1 65535 /pause ← propio
+# 4026532666 uts 3 65535 /pause ← dueño: uts compartido del Pod
+# 4026532667 ipc 3 65535 /pause ← dueño: ipc compartido del Pod
+# 4026532668 pid 1 65535 /pause ← propio
+Tres namespaces con NPROCS=3 (net, uts, ipc): son los compartidos, que el pause sostiene y nginx hereda. Dos con NPROCS=1 (mnt, pid): son propios del pause. El user 65535 confirma que corre como nobody — exactamente como indica el Dockerfile.
+¿Qué pasa si el contenedor pause muere?
+Si el contenedor pause muere, los namespaces desaparecen. La red del Pod se destruye. Kubelet tiene que recrear el Pod completo desde cero: un nuevo proceso pause con nuevos namespaces, nuevos contenedores uniéndose a ellos, y en muchos casos una nueva IP.
+Por eso el pause tiene que ser absolutamente estable. Un proceso que solo duerme es prácticamente imposible de crashear.
+¿Por qué no simplemente compartir los namespaces del primer contenedor?
+Es una pregunta válida. Docker ya permite hacer esto con --net=container:<id>. ¿Por qué Kubernetes no simplemente designa al primer contenedor del spec como el "dueño" de los namespaces y hace que los demás se unan a él?
+El problema es el ciclo de vida. En Kubernetes, los contenedores pueden crashear y reiniciarse de forma independiente. Cuando un contenedor muere, el runtime lo destruye y crea uno nuevo. Ese proceso nuevo tiene un PID diferente y, si fuera el dueño del namespace, ese namespace desaparecería con él.
+Antes de responder, una aclaración importante sobre PID 1 en un Pod:
+PID 1 dentro de un contenedor vs PID 1 del Pod: Por defecto cada contenedor tiene su propio namespace de PID. El proceso principal de la app es PID 1 dentro de ese namespace — pero no es el PID 1 global del Pod. El PID 1 del namespace compartido es pause. Además, el kernel de Linux ignora SIGKILL enviado a PID 1 desde dentro de su propio namespace, exactamente para evitar que un proceso destruya su propio init.
+Cuando el proceso principal de app muere, ese contenedor muere. Kubelet lo detecta y lo reinicia según restartPolicy. Pero reinicia solo ese contenedor — no el Pod completo. El contenedor pause sigue corriendo durante todo ese proceso, los namespaces permanecen intactos, y sidecar nunca pierde su conexión de red. Puedes verlo con kubectl get pod -w: el estado pasa a 1/2 mientras app se reinicia, luego vuelve a 2/2. El Pod nunca se recreó.
+Ahora pensalo con la hipótesis original: ¿qué pasaría si el namespace de red perteneciera a app en lugar de a pause?
+El proceso de app muere — su namespace de red desaparece con él.
+sidecar pierde su interfaz de red en el medio de una operación.
+Kubelet no puede reiniciar solo app — tiene que recrear el Pod completo para restablecer el namespace.
+Con pause como ancla esto no ocurre. app puede morir y reiniciarse diez veces — el namespace de red vive en pause, no en app. El único caso en que el Pod completo se reinicia es si pause muere, y pause nunca crashea porque no hace nada. Eso no es una limitación — es exactamente el diseño.
+Se puede verificar. Este Pod hace que app crashee cada 10 segundos intencionalmente:
+apiVersion: v1
+kind: Pod
+metadata:
+name: test-restart
+spec:
+containers:
+- name: app
+image: alpine
+command: ["sh", "-c", "echo app-start; sleep 10; exit 1"]
+- name: sidecar
+image: alpine
+command: ["sh", "-c", "while true; do date; sleep 2; done"]
+kubectl apply -f test-restart.yaml
+# Observar en tiempo real
+kubectl get pod test-restart -w
+# NAME READY STATUS RESTARTS
+# test-restart 2/2 Running 0
+# test-restart 1/2 Error 0 ← app cayó, sidecar sigue (READY 1/2)
+# test-restart 1/2 CrashLoopBackOff 1
+# test-restart 2/2 Running 1 ← solo app se reinició, Pod intacto
+# Verificar que sidecar nunca se interrumpió
+kubectl logs test-restart -c sidecar
+# Los timestamps deben ser continuos sin ningún gap

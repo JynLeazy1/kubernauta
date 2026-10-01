@@ -1,0 +1,159 @@
+¿Qué es un Pod?
+Parte 4 de 10
+Cómo kubelet crea un Pod paso a paso
+Hasta ahora vimos las piezas: el contenedor pause, los namespaces, el filesystem. Pero ¿qué desencadena todo eso? ¿Quién llama a quién y en qué orden? Esta parte sigue el camino exacto desde que el usuario ejecuta kubectl apply hasta que el Pod está corriendo.
+Paso 1 — El scheduler asigna el Pod a un nodo
+Cuando creas un Pod, el API server lo guarda en etcd con nodeName: "". El scheduler lo detecta, evalúa qué nodo tiene recursos disponibles, y actualiza el campo nodeName del Pod con el nodo elegido. A partir de ahí el scheduler ya no interviene más.
+Paso 2 — kubelet detecta el Pod
+kubelet corre en cada nodo y tiene un watch abierto contra el API server. En cuanto el Pod queda asignado a su nodo, kubelet lo recibe y empieza el proceso de creación.
+Paso 3 — kubelet llama al CRI
+kubelet no habla directamente con containerd ni con runc. Habla con el CRI (Container Runtime Interface), una API gRPC estándar que abstrae el runtime. El contrato está definido en api.proto como un servicio gRPC:
+// api.proto — kubernetes/cri-api
+service RuntimeService {
+rpc RunPodSandbox(RunPodSandboxRequest) returns (RunPodSandboxResponse) {}
+rpc CreateContainer(CreateContainerRequest) returns (CreateContainerResponse) {}
+rpc StartContainer(StartContainerRequest) returns (StartContainerResponse) {}
+rpc StopContainer(StopContainerRequest) returns (StopContainerResponse) {}
+rpc RemovePodSandbox(RemovePodSandboxRequest) returns (RemovePodSandboxResponse) {}
+rpc Exec(ExecRequest) returns (ExecResponse) {}
+rpc Attach(AttachRequest) returns (AttachResponse) {}
+rpc PortForward(PortForwardRequest) returns (PortForwardResponse) {}
+// ...
+}
+Cada línea rpc define un método remoto: el nombre, el tipo del mensaje de entrada y el tipo del mensaje de respuesta, ambos también definidos en el mismo proto:
+message RunPodSandboxRequest {
+PodSandboxConfig config = 1; // spec del sandbox: namespaces, hostname, dns...
+string runtime_handler = 2; // "runc", "kata-containers", etc.
+}
+message RunPodSandboxResponse {
+string pod_sandbox_id = 1; // ID que kubelet usará en CreateContainer
+}
+kubelet serializa el request a binario protobuf y lo envía sobre un Unix socket HTTP/2. Del otro lado, containerd lo deserializa y ejecuta la operación. La implementación real de RunPodSandbox en containerd está en internal/cri/server/sandbox_run.go:
+// containerd — sandbox_run.go
+func (c *criService) RunPodSandbox(
+ctx context.Context,
+r *runtime.RunPodSandboxRequest,
+) (_ *runtime.RunPodSandboxResponse, retErr error) { ... }
+Lo que hace elegante este diseño es que kubelet no sabe qué hay del otro lado — solo conoce el contrato protobuf. Cambiar de containerd a CRI-O es cambiar qué proceso escucha en el socket /run/containerd/containerd.sock.
+La primera llamada es RunPodSandbox, que crea el sandbox del Pod — el contenedor pause:
+kubelet → CRI (containerd) → RunPodSandbox(config)
+El runtime:
+Descarga la imagen registry.k8s.io/pause si no está en caché
+Crea los namespaces del Pod: net, IPC, UTS
+Arranca el proceso /pause
+Devuelve un podSandboxID
+Paso 4 — el plugin CNI configura la red
+Inmediatamente después de crear el sandbox, el runtime invoca el plugin CNI configurado en el nodo (Calico, Flannel, Cilium, etc.). El plugin recibe el network namespace del pause y:
+Crea un par de interfaces veth: una dentro del namespace del Pod (eth0), otra en el host (cali... o veth...)
+Asigna la IP del Pod a eth0
+Configura las rutas necesarias
+A partir de este momento el Pod tiene IP. Esa IP pertenece al namespace de red del pause — todos los contenedores que se unan a ese namespace la compartirán.
+CNI en profundidad: En la siguiente sección vamos a indagar exactamente cómo funciona un plugin CNI: qué es el spec, cómo el runtime lo invoca y qué pasa a nivel de kernel cuando se crea el veth pair.
+Paso 5 — kubelet crea los init containers (si existen)
+Si el spec tiene initContainers, kubelet los crea y ejecuta en orden, uno por uno. Para cada uno llama a CreateContainer y StartContainer en el CRI, pasando el podSandboxID del paso 3. El init container se une a los namespaces del sandbox (red, IPC, UTS) pero tiene su propio filesystem.
+kubelet espera que cada init container termine con exit 0 antes de pasar al siguiente. Si alguno falla, el Pod queda en Init:Error y kubelet reintenta según restartPolicy.
+Paso 6 — kubelet crea los contenedores regulares
+Una vez que todos los init containers completaron, kubelet crea todos los contenedores regulares. Para cada uno:
+Llama a PullImage si la imagen no está en caché
+Llama a CreateContainer con el podSandboxID — el runtime configura el contenedor para que use los namespaces del sandbox
+Llama a StartContainer — el runtime ejecuta runc create + runc start
+El proceso arranca con los namespaces del pause (red, IPC, UTS) pero con su propio namespace de PID y su propio OverlayFS.
+Paso 7 — kubelet empieza a monitorear
+Con los contenedores corriendo, kubelet entra en su loop de reconciliación: ejecuta los probes configurados (liveness, readiness, startup), reporta el estado al API server, y actúa si algún contenedor muere.
+Observándolo en vivo
+Los siete pasos no son una abstracción — cada uno deja huella observable. La forma más confiable y que siempre funciona, sin SSH al nodo, es escuchar los events del API server:
+# Terminal A: stream de eventos del cluster
+kubectl get events --watch --output-watch-events
+# Terminal B: crear el Pod
+kubectl run nginx --image=nginx
+# pod/nginx created
+En la terminal A van a aparecer los eventos en orden, cada uno con su reason que mapea directo a un paso del flujo:
+EVENT LAST SEEN TYPE REASON OBJECT MESSAGE
+ADDED 0s Normal Scheduled pod/nginx Successfully assigned default/nginx to node01
+ADDED 0s Normal Pulling pod/nginx Pulling image "nginx"
+ADDED 7s Normal Pulled pod/nginx Successfully pulled image "nginx" in 7.475s. Image size: 62964342 bytes.
+ADDED 7s Normal Created pod/nginx Created container: nginx
+ADDED 8s Normal Started pod/nginx Started container nginx
+Scheduled = paso 1 + 2 (scheduler + kubelet detecta). Pulling/Pulled = PullImage del CRI. Created = CreateContainer. Started = StartContainer. Si la imagen ya está cacheada, Pulled se reporta en milisegundos y los eventos pueden colapsarse a uno solo:
+# Segunda creación con la imagen ya en caché del runtime
+ADDED 0s Normal Pulled pod/nginx Successfully pulled image "nginx" in 770ms.
+ADDED 0s Normal Created pod/nginx Created container: nginx
+ADDED 0s Normal Started pod/nginx Started container nginx
+Y al borrar el Pod, el evento Killing revela el comienzo del shutdown (StopContainer del CRI) — kubelet manda SIGTERM y espera terminationGracePeriodSeconds antes de SIGKILL:
+ADDED 0s Normal Killing pod/nginx Stopping container nginx
+Para verificar el resultado en el nodo, primero averiguá en cuál nodo cayó el Pod y entrá ahí:
+# En qué nodo se schedulueó
+kubectl get pod nginx -o wide
+# NAME READY STATUS NODE IP
+# nginx 1/1 Running node01 192.168.1.42
+# SSH al nodo donde corre y consultar el runtime directamente
+ssh node01
+# crictl filtra los pod sandboxes — cada entrada es un contenedor pause
+crictl pods --name nginx
+# POD ID CREATED STATE NAME NAMESPACE ATTEMPT RUNTIME
+# 2cc2b0a67a435 2 minutes ago Ready nginx default 0 (default)
+# Y los contenedores regulares — la columna IMAGE muestra el SHA del image id,
+# no el tag (nginx:latest). Para resolver al nombre: crictl images.
+crictl ps --name nginx
+# CONTAINER IMAGE CREATED STATE NAME ATTEMPT POD ID POD NAMESPACE
+# eadc347ef9589 6c3a6ea6608c8 3 minutes ago Running nginx 0 2cc2b0a67a435 nginx default
+# Listar containers de un Pod específico — OJO: --pod toma el POD ID,
+# no el nombre. crictl ps --pod nginx no devuelve nada.
+crictl ps --pod 2cc2b0a67a435
+# CONTAINER IMAGE ... POD ID POD NAMESPACE
+# eadc347ef9589 6c3a6ea6608c8 ... 2cc2b0a67a435 nginx default
+Los IDs 2cc2b0a67a435... (sandbox) y eadc347ef9589... (container) son lo que devolvieron RunPodSandbox y CreateContainer respectivamente — viven en el estado de containerd y son los mismos que kubelet usa internamente para cualquier operación posterior. Para ir directo al pause sin pasar por kubelet, inspeccioná el sandbox y consultá el PID:
+crictl inspectp 2cc2b0a67a435 | jq '.info.pid'
+# 65281
+ps 65281
+# PID TTY STAT TIME COMMAND
+# 65281 ? Ss 0:00 /pause
+Confirmación final: el proceso es literalmente /pause, el binario estático de 743 KB cuyo único trabajo es sostener los namespaces del Pod. A partir de ese PID puedes usar nsenter -t 65281 --net para entrar a la red del Pod, o leer /proc/65281/ns/* para ver los inodes de cada namespace que comparte con los containers de aplicación.
+Y si listas todos los sandboxes del nodo, vas a ver no sólo tus Pods de aplicación, sino también los del control plane que viven en cada nodo:
+crictl pods
+# POD ID CREATED STATE NAME NAMESPACE
+# 0b69c25ec6a49 13 seconds ago Ready nginx default
+# 2cac328c5ca49 4 hours ago Ready coredns-76bb9b6fb5-ztbtq kube-system
+# 79ecf3b634a17 4 hours ago Ready canal-fvthj kube-system
+# bd629edafd590 4 hours ago Ready kube-proxy-2slpb kube-system
+# cdcb824d9ed08 3 days ago NotReady canal-fvthj kube-system
+# c8c3ad939d519 3 days ago NotReady kube-proxy-2slpb kube-system
+Las entradas NotReady de hace varios días son sandboxes huérfanos: cuando el nodo reinició, los procesos murieron pero los registros en el state de containerd quedaron. crictl rmp --force <id> los limpia si te molestan.
+Los logs de kubelet en el nodo
+journalctl -u kubelet solo funciona en el nodo donde el Pod se schedulueó, no en controlplane. Primero kubectl get pod -o wide, después SSH a ese nodo. A verbosidad por defecto (--v=2) vas a ver mensajes del reconciler, del volume manager, y reportes de latencia del lifecycle. Una corrida real de kubectl run nginx seguido de kubectl delete pod nginx deja una huella así:
+sudo journalctl -u kubelet -f --since=now
+# CREACIÓN
+... reconciler_common.go:251] VerifyControllerAttachedVolume started for
+volume "kube-api-access-4gkdt" ... pod="default/nginx"
+# El tracker de latencia del Pod, super útil para perf debugging
+... pod_startup_latency_tracker.go:104] "Observed pod startup duration"
+pod="default/nginx" podStartSLOduration=114.296153455
+podStartE2EDuration="2m1.772173421s"
+firstStartedPulling="..." lastFinishedPulling="..."
+observedRunningTime="..."
+# BORRADO
+... reconciler_common.go:163] UnmountVolume started for volume
+"kube-api-access-4gkdt" pod="..."
+... operation_generator.go:781] UnmountVolume.TearDown succeeded ...
+... scope.go:117] "RemoveContainer" containerID="9463129534..."
+# Race típica e inocua: kubelet pide ContainerStatus de un container que ya
+# eliminó. La maneja sola, pero llena los logs con un E0427 una vez:
+... E0427 ... ContainerStatus from runtime service failed
+err="rpc error: code = NotFound..." containerID="9463129534..."
+... kubelet_volumes.go:163] "Cleaned up orphaned pod volumes dir"
+path="/var/lib/kubelet/pods/<uid>/volumes"
+Tres detalles que vale la pena leer:
+VerifyControllerAttachedVolume: kubelet montó el volume proyectado del ServiceAccount token (kube-api-access-XXXX) antes de iniciar el container. Cada Pod recibe automáticamente este volume bajo /var/run/secrets/kubernetes.io/serviceaccount — es lo que las apps usan para hablar con el API server.
+pod_startup_latency_tracker.go: el bloque más útil para diagnóstico de performance. Reporta podStartE2EDuration (de creación a Running), firstStartedPulling/lastFinishedPulling (cuánto tomó la image pull), y observedRunningTime (cuándo el container empezó a correr). Para un Pod que tarda 2 minutos en arrancar, este log te dice exactamente dónde se fue el tiempo.
+El E0427 ... ContainerStatus from runtime service failed err="...NotFound..." es una race condition normal y benigna: kubelet pide el status de un container que ya borró en el mismo ciclo. La maneja silenciosamente, pero genera un error log. No te alarmes cuando lo veas durante un delete.
+Las trazas más detalladas (SyncLoop ADD, CRI: RunPodSandbox name=...) requieren subir la verbosidad: editá /var/lib/kubelet/kubeadm-flags.env o el KubeletConfiguration, agregá --v=4, y systemctl restart kubelet. Ruidoso en producción — revertí cuando termines.
+El flujo completo:
+kubectl apply
+→ API server guarda el Pod en etcd (nodeName: "")
+→ scheduler asigna nodeName
+→ kubelet detecta el Pod
+→ CRI: RunPodSandbox → pause container + namespaces
+→ CNI plugin → IP asignada al namespace
+→ CRI: CreateContainer × N → contenedores se unen al sandbox
+→ CRI: StartContainer × N → procesos arrancados con runc
+→ kubelet loop → probes + reporte de estado

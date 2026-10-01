@@ -1,0 +1,26 @@
+Kubernetes para principiantes · Capítulo 9 de 21
+Services en Kubernetes: ClusterIP, NodePort y LoadBalancer
+7 secciones
+En este capítulo
+01
+Introducción: los Pods son efímeros, las Services no
+→
+02
+ClusterIP: la dirección interna estable
+→
+03
+NodePort: exponer en cada nodo
+→
+04
+LoadBalancer: integración con el cloud
+→
+05
+kube-proxy: cómo se implementa un Service (iptables / ipvs / nftables)
+→
+06
+Endpoints y EndpointSlices
+→
+07
+Resumen
+→
+Empezar el capítulo →

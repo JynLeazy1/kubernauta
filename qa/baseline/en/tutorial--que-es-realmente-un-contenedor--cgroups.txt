@@ -1,0 +1,258 @@
+What exactly is a Container?
+Part 6 of 9
+cgroups: Real Resource Control (v1 vs v2)
+Namespaces provide isolation: the process believes it is alone. cgroups (control groups) provide resource control: how much CPU, memory, and I/O a process can actually consume. Without cgroups, a container could consume all host resources and starve its neighbors.
+There are two versions with fundamentally different architectures.
+cgroups v1: per-subsystem hierarchies
+In v1, each resource type has its own independent hierarchy mounted in a separate directory:
+ls /sys/fs/cgroup/
+blkio cpu cpu,cpuacct cpuset devices freezer
+hugetlb memory net_cls net_prio perf_event pids rdma systemd
+To limit memory for a process in v1:
+# Create a cgroup in the memory subsystem
+mkdir /sys/fs/cgroup/memory/my-app
+# Set a 256 MB limit
+echo $((256 * 1024 * 1024)) > /sys/fs/cgroup/memory/my-app/memory.limit_in_bytes
+# Add the current process to the cgroup
+echo $$ > /sys/fs/cgroup/memory/my-app/cgroup.procs
+# Verify the active limit
+cat /sys/fs/cgroup/memory/my-app/memory.limit_in_bytes
+# 268435456
+The problem with v1 is that each subsystem's hierarchy is independent. The same process can be at different positions in the tree for cpu, memory, and blkio, making management complex, inconsistent, and hard to reason about. Accounting across subsystems is not coordinated either.
+cgroups v2: unified hierarchy
+v2 solves this with a single tree shared by all controllers:
+ls /sys/fs/cgroup/
+# Root cgroup configuration files
+cgroup.controllers cgroup.subtree_control cgroup.stat
+cgroup.max.depth cgroup.threads cgroup.procs
+cgroup.max.descendants cgroup.pressure
+# Stats and metrics per resource (v1 scattered these across subsystems)
+cpu.pressure cpu.stat cpu.stat.local
+io.pressure io.stat io.cost.model io.cost.qos io.prio.class
+memory.pressure memory.stat memory.numa_stat
+memory.reclaim memory.zswap.writeback
+cpuset.cpus.effective cpuset.cpus.isolated cpuset.mems.effective
+misc.capacity misc.current
+# Automatic mounts exposed by systemd as leaf cgroups
+dev-hugepages.mount dev-mqueue.mount proc-sys-fs-binfmt_misc.mount
+sys-fs-fuse-connections.mount sys-kernel-config.mount
+sys-kernel-debug.mount sys-kernel-tracing.mount
+# Slices and scopes: the actual process hierarchy
+init.scope/ ← PID 1 (systemd)
+kubepods.slice/ ← created by kubelet for all Pods (only if K8s is running)
+system.slice/ ← systemd services
+user.slice/ ← user sessions
+Notice how everything lives in one directory: configuration (cgroup.*), metrics (cpu.pressure, memory.stat), cumulative stats, and the process hierarchy (*.slice/, *.scope/). In v1 you had to look at five or six different directories to assemble the same information.
+To limit resources in v2:
+# Create the cgroup
+mkdir /sys/fs/cgroup/my-app
+# Enable the controllers you want to use (on the parent)
+echo "+cpu +memory +io" > /sys/fs/cgroup/cgroup.subtree_control
+# Memory limit: maximum 256MB, no swap
+echo $((256 * 1024 * 1024)) > /sys/fs/cgroup/my-app/memory.max
+echo 0 > /sys/fs/cgroup/my-app/memory.swap.max
+# CPU limit: 50% of one core (50000 µs out of every 100000 µs)
+echo "50000 100000" > /sys/fs/cgroup/my-app/cpu.max
+# Add the process
+echo $$ > /sys/fs/cgroup/my-app/cgroup.procs
+Pressure Stall Information (PSI)
+v2 introduces PSI: metrics that indicate how long processes in the cgroup were waiting for CPU, memory, or I/O. This is contention information that v1 lacked and that is essential for detecting saturation before it becomes a problem:
+cat /sys/fs/cgroup/my-app/memory.pressure
+some avg10=0.00 avg60=0.00 avg300=0.00 total=0
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+some: at least one process waited for the resource.
+full: all processes waited (total stall).
+avg10/60/300: average over the last 10s, 60s, and 300s.
+How Docker uses cgroups
+docker run --name demo-limits --rm -d \
+--memory=512m \
+--cpus=0.5 \
+nginx:alpine
+CONTAINER_ID=$(docker inspect demo-limits --format '{{.Id}}')
+# View the created cgroup (v2)
+cat /sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope/memory.max
+# 536870912 ← 512 * 1024 * 1024
+cat /sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope/cpu.max
+# 50000 100000 ← 50% of one core
+Key differences v1 vs v2
+Everything you've seen so far follows from one architectural decision. In v1, each controller has its own hierarchy mounted under its own directory (/sys/fs/cgroup/cpu/, /sys/fs/cgroup/memory/, /sys/fs/cgroup/blkio/, …). A process can sit at different positions in each tree — managing them consistently is a puzzle. In v2 there is a single tree under /sys/fs/cgroup/ and controllers are enabled per cgroup via cgroup.subtree_control; every process lives in exactly one place.
+That unification is what makes the two most visible wins possible:
+PSI (*.pressure) only exists in v2. To answer "how long did this set of processes wait on CPU/memory/I/O", the set has to be defined unambiguously — i.e. in a unified tree. In v1 the same process could live in different cgroups depending on the controller, so "the cgroup" was not a single thing.
+The operational primitives (cgroup.freeze, cgroup.kill, cgroup.subtree_control) are all v2. v1 had equivalents for some, but scattered across controllers and with inconsistent semantics.
+To tell which one your system runs:
+stat -fc %T /sys/fs/cgroup/
+# cgroup2fs → unified v2
+# tmpfs → v1 (separate hierarchies mounted over a tmpfs root)
+Current state: Ubuntu 21.10+, Fedora 31+, Debian 11+ and RHEL 9+ default to v2. Kubernetes has supported v2 since 1.25 (GA) and prefers it from 1.26 onwards. If you inherit a cluster on v1, the hierarchy still works, but you lose PSI, atomic cgroup.kill, and the 1:1 mapping between processes and cgroup — reasons enough to plan the migration.
+Relationship with Kubernetes
+Kubernetes uses cgroups to implement Pod requests and limits:
+requests.cpu → cpu.shares (v1) / cpu.weight (v2): a relative weight that guarantees a minimum.
+limits.cpu → pair cpu.cfs_quota_us + cpu.cfs_period_us (v1) / cpu.max (v2): a hard ceiling. In v1 the limit is expressed as two separate files (how much CPU time and over what window); in v2 both live on a single line (quota period, e.g. 50000 100000).
+limits.memory → memory.limit_in_bytes (v1) / memory.max (v2): when exceeded, the process receives SIGKILL (OOM kill).
+The hierarchy kubelet builds on every node
+On a Kubernetes node with cgroups v2, kubelet creates a root slice called kubepods.slice/ and splits it by QoS class:
+ls /sys/fs/cgroup/kubepods.slice/
+kubepods-besteffort.slice/ ← Pods with no requests or limits
+kubepods-burstable.slice/ ← Pods with requests and (optionally) higher limits
+# kubepods-guaranteed.slice/ ← only appears if Guaranteed Pods exist
+cpu.max cpu.weight memory.max memory.high cpuset.cpus ...
+Inside each QoS slice, every Pod gets its own sub-slice named with the Pod UID (hyphens - converted to underscores _):
+ls /sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/
+kubepods-besteffort-pod59d55566_cfec_44b5_a4fa_4a85cc614d98.slice/
+kubepods-besteffort-pod831093d6_349b_4e0f_a9ac_3247dd48fc94.slice/
+kubepods-besteffort-pod95befcd1_4791_4a8f_a7a1_43053a0050c4.slice/
+cpu.max memory.max io.max pids.max ...
+Going one level deeper, inside the Pod slice you find the scopes of each container — the leaf cgroup where the kernel applies the actual limits:
+ls /sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/\
+kubepods-besteffort-podb0f6dbac_47ea_494c_a4bb_dbb4656a862f.slice/
+cri-containerd-3a9dd44529e63c649bdceea79056432992c97975ded1c111b63f2d0598bd27b6.scope/
+cri-containerd-b2171cb14dceef68bd0b7d837d25a20a9bb7b8509fc57bb0c4a8552bd97370ff.scope/
+cpu.max memory.max ...
+Two details worth calling out:
+The cri-containerd- prefix: the CRI runtime is containerd. With Docker as the runtime the prefix is docker-; with CRI-O it is crio-. The rest of the name is the container ID.
+There are always ≥ 2 scopes per Pod, even when your YAML defines a single container. The first one belongs to the pause (sandbox) container that keeps the Pod's shared namespaces alive; the second (and beyond) are your application containers. The pause container is introduced in Part 9.
+The leaf cgroup (the .scope) is where each container's actual limits live. The upper layers — Pod slice, QoS slice, root slice — exist to aggregate metrics and enforce QoS-wide limits, not the individual container's.
+# Read the effective cpu.max of the application container
+cat /sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/\
+kubepods-besteffort-podb0f6dbac_..._a862f.slice/\
+cri-containerd-b2171cb14d....scope/cpu.max
+# max 100000 ← "max" because the Pod is BestEffort (no limits)
+# Same file on a Burstable container with limits.cpu=500m
+cat /sys/fs/cgroup/kubepods.slice/kubepods-burstable.slice/\
+kubepods-burstable-podf4bbaf15_..._1483e.slice/\
+cri-containerd-ed567c773e....scope/cpu.max
+# 50000 100000 ← 50ms out of every 100ms = 0.5 core
+The rules that determine the QoS class:
+Guaranteed: every container in the Pod has requests == limits for both CPU and memory.
+Burstable: at least one container has requests, but the Guaranteed rule is not satisfied.
+BestEffort: no container has requests or limits.
+This has an important operational consequence: the three QoS classes define the eviction order when a node is under memory pressure. BestEffort is evicted first, Burstable next (if it exceeds its requests), and Guaranteed only as a last resort. All of that logic is built on the slice structure you just saw.
+A debugging tip: a Pod's slice only shows up in /sys/fs/cgroup/kubepods.slice/ on the node where it was scheduled. If you run kubectl run nginx --image=nginx and then SSH into each worker, the Pod's sub-slice appears on one of them — the winner of the scheduling decision.
+Reading a live container
+The container's scope exposes files that answer common operational questions without entering the container or installing anything. A mini-dictionary with values taken from a real container:
+SCOPE=/sys/fs/cgroup/kubepods.slice/kubepods-burstable.slice/\
+kubepods-burstable-podf4bbaf15_..._1483e.slice/\
+cri-containerd-ed567c773e....scope
+# How much CPU has it used, and is the kernel throttling it?
+cat $SCOPE/cpu.stat
+# usage_usec 20076856 ← 20s of total CPU
+# user_usec 10484459
+# system_usec 9592396
+# nr_periods 0
+# nr_throttled 0 ← zero throttling: hasn't hit cpu.max
+# throttled_usec 0
+# nr_bursts 0
+# What relative weight did kubelet derive from requests.cpu?
+cat $SCOPE/cpu.weight
+# 11 ← low (default without requests = 100)
+# How much memory is it using, and what is the ceiling?
+cat $SCOPE/memory.current && cat $SCOPE/memory.max
+# 16064512 ← 15.3 MB used
+# 178257920 ← 170 MB ceiling (= limits.memory)
+# Breakdown: is the memory heap, code, kernel?
+cat $SCOPE/memory.stat | head -5
+# anon 13631488 ← 13 MB of heap/stack/anonymous mmap
+# file 1789952 ← 1.7 MB of file-backed pages (code, libs)
+# kernel 634880 ← 634 KB of kernel memory
+# kernel_stack 114688
+# pagetables 249856
+# How many processes / threads are alive, and what is the ceiling?
+cat $SCOPE/pids.current && cat $SCOPE/pids.max
+# 7 ← 7 live tasks
+# 2237 ← ceiling (fork-bomb defense)
+# PSI: is it waiting on CPU/memory/I/O?
+cat $SCOPE/cpu.pressure
+# some avg10=0.00 avg60=0.00 avg300=0.00 total=14334655
+# full avg10=0.00 avg60=0.00 avg300=0.00 total=6199124
+Three signals worth learning to read at a glance:
+cpu.stat → nr_throttled and throttled_usec: if these climb, your limits.cpu is too tight and the kernel is pausing the process. It is the #1 cause of mystery latency on containers "that seem to have spare CPU".
+memory.current vs memory.max: the ratio is your distance to OOM kill. When memory.current closes in on memory.max, the next allocation spike triggers OOMKilled (the Pod restarts).
+*.pressure (PSI): avg10 is the real-time thermometer. A sustained avg10 > 10 on any of the three means active saturation — use it as a scale signal instead of waiting for OOM or throttling.
+All those files are part of the kernel's stable interface. Tools like cadvisor, node_exporter or metrics-server are wrappers that read exactly this and export the values as Prometheus metrics.
+The limits in action
+The files you just read change when the container actually approaches its limits. Two quick experiments show this live with stress-ng:
+Force an OOM with memory.max:
+# Container capped at 128 MB trying to use 200 MB.
+# NOTE: no --rm, because it destroys the cgroup as soon as the container
+# exits and you can no longer read memory.events. Use --detach and
+# read it live.
+docker run -d --name oom-test --memory=128m alpine \
+sh -c "apk add -q stress-ng && stress-ng --vm 1 --vm-bytes 200M --vm-keep -t 30s"
+CID=$(docker inspect oom-test --format '{{.Id}}')
+SCOPE=/sys/fs/cgroup/system.slice/docker-${CID}.scope
+# Read the OOM kill counter every few seconds while it runs:
+watch -n 2 "cat ${SCOPE}/memory.events"
+# Typical progression (one snapshot per read, ~5s apart):
+# low 0
+# high 0
+# max 9164 → 14192 → 28958 → 41424 → 48882
+# oom 79 → 120 → 237 → 320 → 374
+# oom_kill 79 → 120 → 237 → 320 → 374
+# oom_group_kill 0
+#
+# In 30s of stress-ng: 374 OOM kills and the kernel hit memory.max
+# nearly 49,000 times. stress-ng respawns workers after each kill
+# (that's why the counters climb so fast with --vm-keep).
+memory.events is a cumulative counter — useful for alerting ("if oom > 0 in the last N minutes, the pod is on the edge"). Kubernetes uses this same file to bump the OOMKilled restart counter.
+Two subtle details from the output:
+oom vs oom_kill: the first counts times the kernel invoked the OOM killer in this cgroup; the second counts processes that were actually killed. They are usually equal because the killer almost always finds a victim, but they can diverge if the cgroup becomes empty in between.
+oom_group_kill stays at 0 because Docker does not set memory.oom.group=1. With that flag, a single OOM kills every process in the cgroup at once. Kubernetes enables it by default for containers since 1.28, so on a real Pod you would see this counter climb instead of the individual ones.
+Force CPU throttling with cpu.max:
+# Container with only 25% of 1 core, 4 worker threads fighting for CPU.
+# Here --rm is safe because we read cpu.stat while the test runs.
+docker run -d --rm --name throttle-test --cpus=0.25 alpine \
+sh -c "apk add -q stress-ng && stress-ng --cpu 4 -t 30s"
+CID=$(docker inspect throttle-test --format '{{.Id}}')
+SCOPE=/sys/fs/cgroup/system.slice/docker-${CID}.scope
+# Follow the stat live:
+watch -n 2 "cat ${SCOPE}/cpu.stat"
+# Typical progression (one snapshot per read, ~5s apart):
+# usage_usec 5371178 → 5696446 → 6846310 → 7321215 → 7646634
+# user_usec 5156851 → 5479895 → 6614363 → 7081351 → 7405752
+# system_usec 214326 → 216550 → 231946 → 239863 → 240882
+# nr_periods 216 → 229 → 275 → 294 → 307
+# nr_throttled 210 → 223 → 269 → 288 → 301
+# throttled_usec 14985394 → 15939838 → 19273682 → 20651073 → 21596766
+# nr_bursts 0
+# PSI confirms the saturation
+cat ${SCOPE}/cpu.pressure
+# some avg10=75.12 avg60=45.33 avg300=12.04 total=21596766
+# full avg10=74.98 avg60=45.20 avg300=11.98 total=21583512
+The ratio nr_throttled / nr_periods is the percentage of windows in which the kernel paused the container — in this run, 301/307 = 98% throttling. The 4 workers keep demanding CPU, but only 25% of one core is available; the kernel pauses them 98 out of every 100 windows. Seeing this in production means your limits.cpu is too tight for the actual load, regardless of how much "free" CPU is on the node. It is the most common cause of mystery latency in containers.
+Notice how throttled_usec grows: from 14.9s to 21.6s across ~5 seconds of wall-clock time. Every real second, the kernel adds ~1.5s of forced wait — the 4 workers accumulate lost time faster than actual time passes.
+Operational controls: freeze and kill
+Two files in the cgroup are write-only and implement operational primitives you probably use every day through Docker / Kubernetes, even though you have never typed them directly.
+cgroup.freeze pauses and resumes every process in the cgroup atomically. It is the mechanism behind docker pause:
+# Container that writes a tick every second
+docker run -d --name freeze-test alpine sh -c \
+'i=0; while true; do i=$((i+1)); echo "tick $i $(date +%T)"; sleep 1; done'
+CID=$(docker inspect freeze-test --format '{{.Id}}')
+SCOPE=/sys/fs/cgroup/system.slice/docker-${CID}.scope
+# Terminal A — follow the logs live
+docker logs -f freeze-test &
+# tick 103 10:10:38
+# tick 104 10:10:39
+# (ticks advance 1 per second)
+# Terminal B — freeze the cgroup
+echo 1 > ${SCOPE}/cgroup.freeze
+# The kernel confirms
+cat ${SCOPE}/cgroup.events
+# populated 1
+# frozen 1 ← definitive evidence
+# Wait ~45 seconds...
+echo 0 > ${SCOPE}/cgroup.freeze
+# The log now shows the jump in timestamps:
+# tick 104 10:10:39
+# tick 105 10:11:25 ← 46 seconds of real gap, not 1
+# tick 106 10:11:26
+Subtle detail: docker ps keeps reporting STATUS: Up, not (Paused), because writing to cgroup.freeze does not touch Docker's state machine. docker pause does the same thing internally but also updates the container state in dockerd. If you freeze a container out-of-band, the kernel knows, Docker does not — useful to know when you inherit a node with zombie containers.
+cgroup.kill sends SIGKILL to every process in the cgroup atomically, including any that appear during the operation. It is safer than a loop of kill -9 PID by PID, which has race conditions:
+echo 1 > ${SCOPE}/cgroup.kill
+# Every PID in the cgroup receives SIGKILL at once.
+docker ps --filter name=freeze-test
+# (empty) ← the container is gone
+# Docker notices PID 1 died and cleans up the container
+# NOTE: cgroup.kill is write-only; reading it returns "Invalid argument"
+cat ${SCOPE}/cgroup.kill
+# cat: ...cgroup.kill: Invalid argument
+This is the same mechanism Kubernetes uses for kubectl delete pod --force --grace-period=0: instead of waiting for the preStop hook to finish and sending SIGTERM → SIGKILL process by process, the kubelet asks containerd to write 1 to the pod's cgroup.kill, and everything dies at once. That is why --force is so deterministic.

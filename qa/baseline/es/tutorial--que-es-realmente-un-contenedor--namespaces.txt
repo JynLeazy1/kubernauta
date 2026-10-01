@@ -1,0 +1,347 @@
+¿Qué es realmente un contenedor?
+Parte 2 de 9
+Linux Namespaces: los ocho tipos a fondo
+Un namespace es un envoltorio alrededor de un recurso global del kernel. Los procesos dentro del namespace ven su propia copia aislada de ese recurso — los cambios no son visibles fuera. El kernel de Linux tiene actualmente ocho tipos, cada uno con un propósito preciso.
+Antes de entrar a cada uno, establece la referencia: arranca un nginx y guarda su PID.
+docker run --name demo --rm -d nginx:alpine
+NGINX_PID=$(pgrep --oldest nginx)
+sudo lsns -p ${NGINX_PID}
+NS TYPE NPROCS PID USER COMMAND
+4026531834 time 208 1 root /sbin/init
+4026531837 user 206 1 root /sbin/init
+4026532763 mnt 2 247519 root nginx: master process nginx -g daemon off;
+4026532765 uts 2 247519 root nginx: master process nginx -g daemon off;
+4026532766 ipc 2 247519 root nginx: master process nginx -g daemon off;
+4026532767 pid 2 247519 root nginx: master process nginx -g daemon off;
+4026532768 cgroup 2 247519 root nginx: master process nginx -g daemon off;
+4026532769 net 2 247519 root nginx: master process nginx -g daemon off;
+time y user apuntan al PID 1 del host — son namespaces compartidos: Docker no crea estos dos por defecto, así que el contenedor los hereda del init del host (de ahí el NPROCS alto: cuenta todos los procesos del host que viven en esos namespaces). Los seis restantes (mnt, uts, ipc, pid, cgroup, net) son exclusivos del contenedor, con NPROCS=2 (el nginx master y su worker). Vamos uno por uno.
+1. mnt — Mount namespace
+Flag: CLONE_NEWNS — el primero en existir (Linux 2.4.19, 2002), de ahí el nombre genérico "NS".
+Aisla la tabla de montajes del proceso: qué filesystems están montados y en qué puntos. Cada proceso hereda la tabla del padre al nacer, pero dentro de un mount namespace los cambios son locales — montar o desmontar algo no afecta a procesos fuera del namespace.
+sudo unshare --mount bash
+unshare invoca la syscall unshare(2), que desasocia al proceso actual de uno o más namespaces compartidos y crea otros nuevos. El flag --mount le indica que cree un nuevo mount namespace. bash es el proceso que se ejecutará dentro de ese nuevo namespace — hereda la tabla de montajes del padre en el momento del unshare, pero a partir de aquí sus cambios son locales.
+mount -t tmpfs demo /mnt
+mount llama a la syscall mount(2) para registrar un nuevo filesystem en la tabla de montajes del namespace actual. Los argumentos:
+-t tmpfs — el tipo de filesystem. tmpfs vive completamente en memoria RAM (y swap si hay presión), no tiene dispositivo de bloque subyacente.
+demo — el "device". Para filesystems virtuales como tmpfs, proc o sysfs este campo es ignorado por el kernel; es solo una etiqueta que aparece en /proc/mounts para identificar el mount.
+/mnt — el punto de montaje: el directorio del filesystem actual donde quedará visible el nuevo filesystem. El directorio debe existir antes del montaje.
+Este mount solo existe en la tabla del namespace actual. En otra terminal del host, /mnt sigue vacío o con su contenido original — el kernel mantiene tablas de montajes separadas por namespace.
+cat /proc/${NGINX_PID}/mounts
+overlay / overlay rw,relatime,lowerdir=...,upperdir=...,workdir=... 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+tmpfs /dev tmpfs rw,nosuid,size=65536k,mode=755 0 0
+devpts /dev/pts devpts rw,nosuid,noexec,relatime,gid=5,mode=620 0 0
+sysfs /sys sysfs ro,nosuid,nodev,noexec,relatime 0 0
+...
+/proc/<pid>/mounts es un archivo virtual que el kernel genera en tiempo real — lee la tabla de montajes del mount namespace al que pertenece ese proceso. Cada línea sigue el formato:
+dispositivo punto-de-montaje tipo opciones dump pass
+Las opciones de la primera línea (overlay /) merecen atención:
+rw — montado en lectura-escritura (el upperdir acepta escrituras).
+relatime — actualiza el atime solo si es anterior a mtime o ctime, reduciendo escrituras innecesarias.
+lowerdir — las capas de solo lectura de la imagen, separadas por :.
+upperdir — la capa de escritura exclusiva de este contenedor.
+workdir — directorio auxiliar que OverlayFS usa internamente para operaciones atómicas.
+La línea de proc también es relevante: nosuid,nodev,noexec son flags de seguridad que impiden ejecutar binarios setuid, acceder a dispositivos o ejecutar código desde /proc. Son los mismos flags que runc aplica al montar el /proc del contenedor.
+Para ver la tabla del host y compararla:
+cat /proc/1/mounts | wc -l # ~30-50 entradas en un host típico
+cat /proc/${NGINX_PID}/mounts | wc -l # ~20 entradas, filesystem mínimo del contenedor
+Mismo kernel. Dos tablas de montajes completamente distintas.
+2. uts — UTS namespace
+Flag: CLONE_NEWUTS — "UTS" viene de Unix Time-sharing System, la estructura del kernel que guarda hostname y domainname.
+Aisla el hostname y el NIS domainname del proceso. Es el namespace más sencillo y el primero que se nota al entrar a un contenedor.
+# En el host
+hostname # mi-host
+# crea un nuevo UTS namespace y entra a bash
+sudo unshare --uts bash
+# asigna un nuevo hostname dentro del namespace
+hostname contenedor-demo
+# verifica el hostname dentro del namespace
+hostname # contenedor-demo
+# En otra terminal del host:
+hostname # mi-host # sigue siendo el hostname original
+Importancia práctica: permite que cada contenedor tenga su propio hostname sin afectar al host ni a otros contenedores. Herramientas de logging, métricas y service discovery usan el hostname para identificar la fuente — sin este namespace, todos los contenedores del mismo nodo reportarían el hostname del host.
+Nota
+El flag --name demo es solo un alias para los comandos de Docker y no se propaga al interior del contenedor. El hostname real es el ID del contenedor (los primeros 12 caracteres). Para definirlo explícitamente usa --hostname:
+# Verificar el hostname dentro de un contenedor sin --hostname
+docker exec demo hostname
+# eb4982ca6e37 ← el ID del contenedor truncado a 12 caracteres, no el --name
+# Verificar el hostname dentro de un contenedor con --hostname
+docker run --name demo --hostname mi-servidor --rm -d nginx:alpine
+docker exec demo hostname
+# mi-servidor
+3. ipc — IPC namespace
+Flag: CLONE_NEWIPC — aisla los mecanismos de comunicación entre procesos de System V y POSIX.
+Recursos que aisla:
+Semáforos System V (semget, semop)
+Colas de mensajes (msgget, msgsnd)
+Segmentos de memoria compartida (shmget, shmat)
+Colas de mensajes POSIX (/dev/mqueue)
+Para observar el aislamiento usamos dos utilidades de util-linux:
+ipcmk (IPC make): crea un recurso IPC del kernel. Flags:
+-M <bytes> → crea un segmento de memoria compartida del tamaño indicado.
+-Q → crea una cola de mensajes System V.
+-S <n> → crea un set de semáforos con n semáforos.
+ipcs (IPC status): lista los recursos IPC visibles desde el namespace actual. Flags:
+-m → solo memoria compartida (shared memory).
+-q → solo colas de mensajes (queues).
+-s → solo semáforos.
+sin flag → muestra las tres categorías.
+La prueba: creamos un segmento en el host con ipcmk -M y verificamos que ipcs -m no lo ve desde dentro del contenedor — la tabla IPC del kernel es por namespace.
+# Crear un segmento de memoria compartida de 1024 bytes en el host
+ipcmk -M 1024
+# Shared memory id: 131072 ← shmid asignado por el kernel
+# Listar memoria compartida desde el host
+ipcs -m
+# ------ Shared Memory Segments --------
+# key shmid owner perms bytes nattch
+# 0x... 131072 user 644 1024 0 ← aquí está el segmento recién creado
+# Desde dentro del contenedor: la tabla IPC está vacía
+# (En Alpine 3.19+ el binario ipcs vive en util-linux-misc;
+# para versiones anteriores basta con util-linux.)
+docker exec demo sh -c "apk add -q util-linux-misc 2>/dev/null || apk add -q util-linux; ipcs -m"
+# ------ Shared Memory Segments --------
+# (vacío) ← el contenedor no ve el segmento del host
+Esto es crítico para seguridad: sin el namespace IPC, un proceso malicioso en un contenedor podría acceder o corromper segmentos de memoria compartida de otros procesos del host. Aplicaciones legacy que usan IPC de System V (bases de datos antiguas, middleware) son especialmente vulnerables sin este aislamiento.
+En Kubernetes, los Pods comparten el namespace IPC entre sus contenedores por defecto — es una de las formas en que los sidecars se comunican eficientemente con el contenedor principal sin overhead de red.
+4. pid — PID namespace
+Flag: CLONE_NEWPID — aisla el árbol de procesos. Es uno de los namespaces con más implicaciones de seguridad y operación.
+El primer proceso creado en un nuevo PID namespace recibe PID 1 dentro de él. Desde fuera (el host), ese proceso tiene un PID distinto y mayor:
+sudo unshare --pid --fork --mount-proc bash
+# Dentro del namespace:
+echo $$ # 1
+ps aux
+# PID USER COMMAND
+# 1 root bash
+# 7 root ps aux
+# En otra terminal del host:
+pgrep bash # 3385932 ← el PID real en el host
+Estos tres flags forman una unidad — cada uno resuelve un problema distinto que los otros dejan abierto:
+--pid — llama a unshare(CLONE_NEWPID) sobre el proceso actual. Crea el namespace, pero unshare mismo no entra en él como PID 1. El namespace existe vacío.
+--fork — resuelve un detalle crítico: la syscall unshare(CLONE_NEWPID) no mueve al proceso que la llama al nuevo namespace (man unshare(2): "The calling process is not moved into the new namespace"). Solo los hijos futuros nacen dentro — y el primero de esos hijos recibe PID 1. Sin --fork, unshare hace execve(bash) sin forkear primero, así que bash se queda en el namespace original. Cuando bash intenta lanzar cualquier comando externo, el primer hijo se convertiría en el "init" del namespace vacío y muere rápido; el siguiente fork falla porque ya no hay init:
+# Sin --fork: bash se queda en el namespace viejo; los forks al nuevo rompen
+sudo unshare --pid bash
+# bash: fork: Cannot allocate memory ← setup interno de bash ya falla
+# Los builtins siguen funcionando porque NO hacen fork:
+echo $$ # 269188 ← PID del host, no es 1
+pwd # /root ← builtin, OK
+cd /etc # builtin, OK
+echo "howdy" # builtin, OK
+# Pero cualquier comando externo dispara un fork que el kernel rechaza:
+ls # bash: fork: Cannot allocate memory
+ps # bash: fork: Cannot allocate memory
+which ls # bash: fork: Cannot allocate memory
+# ¿Por qué? El nuevo PID namespace quedó sin init vivo: el primer fork(),
+# si prospera, se convierte en PID 1 y cuando ese proceso hijo termina
+# (bash lo ejecuta y lo reapea) el namespace pierde su init. A partir
+# de ahí todo fork() al namespace sin init es rechazado con ENOMEM.
+# Verificación definitiva: comparar el inode del PID namespace.
+# OJO: readlink es un binario externo, así que DENTRO del bash roto
+# también fallará con "Cannot allocate memory". Hay que hacerlo DESDE FUERA.
+# Paso 1 (dentro del bash unshared): obtener su PID con un builtin
+echo $$ # p. ej. 270772
+# Paso 2 (desde otra terminal del host):
+readlink /proc/270772/ns/pid # ns del bash "unshared"
+# pid:[4026531836]
+readlink /proc/1/ns/pid # ns del init del host
+# pid:[4026531836] ← mismo inode: bash NUNCA entró al nuevo namespace
+# Con --fork: unshare hace fork() ANTES de execve, así el hijo bash nace
+# como PID 1 dentro del nuevo namespace y queda vivo como init.
+sudo unshare --pid --fork bash
+echo $$ # 1
+ls / # funciona — hay init para reapear hijos
+readlink /proc/self/ns/pid
+# pid:[4026532767] ← inode distinto: estás dentro
+--mount-proc — aunque ya tengas el PID namespace correcto, /proc sigue montado desde el namespace padre. Sin remontarlo, ps aux mostraría todos los procesos del host porque /proc apunta al árbol original. Este flag monta un procfs fresco que solo refleja el nuevo PID namespace.
+Nota — --mount-proc implica --mount
+--mount-proc ya crea un mount namespace internamente: es equivalente a pasar --mount además. Si ves ambos flags juntos en algún script o tutorial, el --mount es redundante.
+El PID namespace tiene dos consecuencias importantes adicionales:
+a) Señales y reaping de zombies. PID 1 en Linux tiene una responsabilidad especial: adoptar procesos huérfanos y hacer wait() para evitar zombies. Si tu entrypoint no maneja señales correctamente, un docker stop manda SIGTERM al PID 1 del contenedor. Si ese proceso no lo reenvía a sus hijos, Docker espera 10 segundos y manda SIGKILL. Por eso existe tini y la instrucción ENTRYPOINT ["/sbin/tini", "--"].
+# Ver el proceso init de un contenedor
+docker exec demo ps aux
+# PID USER COMMAND
+# 1 root nginx: master process nginx -g daemon off;
+# 31 root nginx: worker process
+# 32 root ps aux
+b) Visibilidad unidireccional. Desde el host puedes ver todos los procesos de todos los contenedores. Desde dentro del contenedor solo ves los procesos de tu PID namespace. Un proceso en el contenedor no puede enviar señales a procesos del host aunque tenga el PID correcto — el PID namespace lo blinda.
+# El host ve el PID real de nginx
+ps aux | grep nginx
+# root 3385932 nginx: master process nginx -g daemon off;
+# Dentro del contenedor, ese mismo proceso tiene PID 1
+docker exec demo ps aux | grep nginx
+# 1 root nginx: master process nginx -g daemon off;
+Variante avanzada: --mount-proc=<ruta>
+Cuando a --mount-proc le pasas una ruta, unshare monta procfs solo en esa ruta, no en /proc. El /proc que ves desde el bash sigue siendo el del host, así que ps aux y ls /proc continuarán mostrando los procesos del host hasta que hagas pivot_root al rootfs destino. Ese es exactamente el caso de uso: preparar /tmp/rootfs/proc para que, tras pivot_root, el nuevo / ya tenga una procfs limpia apuntando al nuevo PID namespace.
+La diferencia se ve de inmediato:
+# Forma corta (sin ruta): monta procfs en /proc del namespace actual.
+# /proc y ps aux reflejan SOLO el nuevo PID namespace.
+sudo unshare --pid --fork --mount-proc bash
+echo $$
+# 1
+ps aux
+# USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+# root 1 0.0 0.2 9196 5396 pts/7 S 04:46 0:00 bash
+# root 13 0.0 0.1 11320 4428 pts/7 R+ 04:47 0:00 ps aux
+# Forma con ruta: monta procfs en /tmp/rootfs/proc, NO en /proc.
+# /proc sigue siendo el del host: se ven cientos de PIDs ajenos.
+mkdir -p /tmp/rootfs/proc
+sudo unshare --pid --fork --mount-proc=/tmp/rootfs/proc bash
+# Sorpresa aparente: SÍ estamos en un nuevo PID namespace...
+echo $$
+# 1 ← bash es PID 1 en el namespace nuevo
+# ...pero ps lee /proc, y /proc sigue siendo el del host:
+ls /proc/
+# 1 1232 14 164 18 219025 247519 253469 342 3732 44 57 654 895 cpuinfo kallsyms mtrr tty
+# 1003 1293 1450 166 1813 22 247563 253476 3429 3735 449 58 66 925 crypto kcore net uptime
+# ... ← PIDs del host (247519 = nginx, 247563 = worker, etc.)
+ps
+# PID TTY TIME CMD
+# 1 ? 00:00:04 systemd ← NO es nuestro bash: es el init del host
+# 1570 ? 00:06:52 kubelet
+# 1785 ? 00:11:38 kube-apiserver
+# 1886 ? 00:05:54 etcd
+# 2293 ? 00:00:00 bash
+# ... ← todos los procesos del host
+# La nueva procfs sí está montada, pero escondida en la ruta que pediste:
+ls /tmp/rootfs/proc/
+# 1 cpuinfo kcore mounts self thread-self ... ← procfs del nuevo PID namespace
+Lectura clave: el aislamiento del PID namespace sí está activo (echo $$ devuelve 1, y un kill 1570 fallaría porque ese PID no existe en tu namespace). Lo que engaña es la vista: herramientas como ps, top o pgrep leen /proc, y ese /proc sigue siendo la procfs del host. Sin remontarlo — o sin hacer pivot_root — el namespace parece "roto" aunque esté funcionando bien.
+5. net — Network namespace
+Flag: CLONE_NEWNET — aisla el stack de red completo: interfaces, tabla de rutas, tabla ARP, reglas de iptables/nftables, conexiones TCP/UDP, sockets Unix.
+Un nuevo network namespace nace con solo la interfaz loopback (lo), down por defecto:
+sudo unshare --net bash
+ip addr
+# 1: lo: <LOOPBACK> mtu 65536 qdisc noop state DOWN
+# link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+Para que el contenedor tenga conectividad, Docker crea un veth pair — un cable virtual con dos extremos. Uno entra al namespace del contenedor como eth0, el otro queda en el host conectado al bridge docker0:
+# En el host: ver los veth pairs activos
+ip link show type veth
+# 9: vetha6b7066@if2: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 ...
+# link/ether 2e:73:a5:d0:40:a6 brd ff:ff:ff:ff:ff:ff
+# master docker0
+# Dentro del contenedor: su extremo del par
+docker exec demo ip addr show eth0
+# 2: eth0@if9: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500
+# inet 172.17.0.2/16 brd 172.17.255.255 scope global eth0
+# @if2 en el host apunta al índice 2 del contenedor (eth0)
+# @if9 en el contenedor apunta al índice 9 del host (vetha6b7066)
+Nota
+Si corres Kubernetes en el mismo host, verás más interfaces veth además de las de Docker: los CNIs como Calico (cali*), Flannel (flannel.1, cni0) o Cilium (lxc*) crean sus propios pares veth hacia los Pods. El mecanismo es el mismo; lo que cambia es quién las orquesta. También es común ver MTUs menores a 1500 (p. ej. 1450 o 1454) porque los CNIs reservan bytes para encapsulación VXLAN/IPIP.
+Cada contenedor tiene su propia tabla de rutas, reglas de iptables y conexiones activas. Docker gestiona las reglas de NAT en el host (iptables -t nat -L DOCKER) para que el tráfico entre docker0 y el exterior funcione.
+# Ver las conexiones TCP activas del contenedor (solo las suyas)
+sudo nsenter -t ${NGINX_PID} --net ss -tlnp
+# State Recv-Q Send-Q Local Address:Port
+# LISTEN 0 511 0.0.0.0:80
+6. user — User namespace
+Flag: CLONE_NEWUSER — el más poderoso y el más complejo. Aisla UIDs y GIDs, permitiendo mapear identidades entre el namespace y el host.
+La capacidad crítica: un proceso puede ser UID 0 (root) dentro del namespace pero mapearse a un UID no privilegiado en el host. Esto es la base de los contenedores rootless.
+# Crear un user namespace sin necesitar sudo (ejecutar como usuario normal)
+unshare --user --map-root-user bash
+# Dentro: somos root
+id
+# uid=0(root) gid=0(root) groups=0(root),...
+# El kernel mapea ese UID 0 interno al UID real del host que invocó unshare
+cat /proc/self/uid_map
+# 0 1000 1 ← si invocaste como UID 1000, verás 1000 en la columna del medio
+# 0 0 1 ← si ya eras root (UID 0), verás 0 — no hay "rebaja" real
+El archivo /proc/self/uid_map tiene el formato: <uid-inicio-namespace> <uid-inicio-host> <cantidad>. Para que el user namespace sirva de barrera de privilegio, el UID del host al que se mapea el 0 interno debe ser un UID no privilegiado. Llamar a unshare --user --map-root-user como root (con sudo o en una sesión root) produce 0 0 1 — técnicamente estás en un user namespace nuevo, pero sin aislamiento de privilegio.
+Docker no activa el user namespace por defecto porque históricamente tuvo problemas de compatibilidad con algunas imágenes. Cuando UID 0 del contenedor = UID 0 del host, una fuga del contenedor te aterriza como root real en el host. Para eliminar ese riesgo necesitas explícitamente:
+dockerd --userns-remap=default en el daemon de Docker, o
+Docker rootless (instalado con dockerd-rootless-setuptool.sh), o
+Podman ejecutado como usuario normal (no con sudo).
+# Verificar si Docker usa user namespace
+docker info | grep "Security Options" -A5
+# Security Options:
+# apparmor
+# seccomp
+# Profile: builtin
+# cgroupns ← no aparece "userns"
+# Podman como ROOT: NO es rootless, es equivalente a Docker
+sudo podman run --rm alpine cat /proc/self/uid_map
+# 0 0 4294967295 ← identity mapping, igual que Docker como root
+# Podman como USUARIO NORMAL: rootless real!!!
+# (como usuario "testuser" con UID 1001, sin sudo)
+podman run --rm alpine id
+# uid=0(root) gid=0(root) ← root dentro del contenedor
+podman run --rm alpine cat /proc/self/uid_map
+# 0 1001 1 ← UID 0 del contenedor = UID 1001 del host
+# 1 231072 65536 ← UIDs 1..65535 mapeados al subrango de /etc/subuid
+#
+# Los números de la segunda fila vienen de /etc/subuid:
+# $ grep testuser /etc/subuid
+# testuser:231072:65536
+# useradd asigna un bloque alineado de 65536 UIDs por usuario nuevo.
+Verificación empírica
+Puedes reproducir los tres casos (root directo, usuario normal, sudoer con sudo) con el script test-podman-userns.sh. El caso "sudoer con sudo" produce exactamente el mismo uid_map que "root directo" — ser sudoer no aporta aislamiento; lo único que cuenta es el UID efectivo que ejecuta podman.
+7. cgroup — Cgroup namespace
+Importante: cgroup namespace ≠ cgroups
+Este namespace no controla recursos. Solo virtualiza la vista que el proceso tiene del filesystem /sys/fs/cgroup — es decir, qué parte de la jerarquía de cgroups puede ver. El mecanismo de control real de CPU, memoria e I/O son los cgroups propiamente dichos, que se cubren a fondo en cgroups: control real de recursos (v1 vs v2).
+Regla mental: cgroups imponen límites; el cgroup namespace decide cuánto de la jerarquía puedes observar desde dentro del contenedor.
+Flag: CLONE_NEWCGROUP — virtualiza la vista del filesystem /sys/fs/cgroup para el proceso.
+Sin este namespace, un proceso dentro del contenedor podría leer toda la jerarquía de cgroups del host — incluyendo los de otros contenedores, con sus límites de recursos y métricas. Con él, el proceso ve su propio cgroup como si fuera la raíz:
+# En el host: el cgroup real de nginx es una ruta larga
+cat /proc/${NGINX_PID}/cgroup
+# 0::/system.slice/docker-eb4982ca6e37...fab.scope
+# Dentro del contenedor: ve "/" como su raíz de cgroup
+docker exec demo cat /proc/1/cgroup
+# 0::/
+Esto tiene dos beneficios: privacidad (el contenedor no puede descubrir otros contenedores por sus cgroups) y simplicidad para herramientas que leen /proc/self/cgroup para autodetectar sus límites de recursos.
+8. time — Time namespace
+Flag: CLONE_NEWTIME — el más nuevo (Linux 5.6, 2020). Aisla dos relojes específicos: CLOCK_MONOTONIC y CLOCK_BOOTTIME.
+Permite ajustar el offset de esos relojes para un proceso sin afectar al sistema. El reloj de pared (CLOCK_REALTIME) no se puede aislar — sería peligroso para la sincronización de tiempo del sistema.
+# Crear un time namespace con CLOCK_MONOTONIC adelantado 1 hora
+# (requiere kernel >= 5.6)
+sudo unshare --time --monotonic 3600 --boottime 3600 bash
+# Verificar el offset registrado
+cat /proc/self/timens_offsets
+# monotonic 3600 0
+# boottime 3600 0
+# Prueba real: /proc/uptime usa CLOCK_BOOTTIME — dentro está 1h adelantado
+cat /proc/uptime
+# 33986.22 27212.64 ← dentro del namespace
+# Salir y leer la misma métrica en el host
+exit
+cat /proc/uptime
+# 30415.07 27238.65 ← host: ~3570s menos (la diferencia ≈ 3600s del offset)
+# date NO cambia — usa CLOCK_REALTIME, que NO se aisla por diseño
+sudo unshare --time --monotonic 3600 --boottime 3600 bash
+date
+# Tue Apr 21 07:26:31 UTC 2026 ← dentro
+exit
+date
+# Tue Apr 21 07:26:35 UTC 2026 ← host (solo los segundos que tardaste en salir)
+Nota — offsets negativos
+Solo offsets positivos funcionan en la práctica. util-linux rechaza valores negativos con Numerical result out of range porque el kernel impide poner los relojes del namespace antes del boot del host (esto prevendría que los TTLs y timeouts activos salten al pasado).
+Casos de uso principales: testing de código sensible al tiempo (simular que el sistema lleva N horas corriendo), migración en vivo de contenedores entre hosts (preservar el tiempo monótono para timeouts y TTLs activos), y entornos de CI que necesitan reproducibilidad de timestamps.
+Docker no crea un time namespace por defecto — aparece en lsns apuntando al PID 1 del host, igual que user.
+Los namespaces como archivos: el mecanismo que une todo
+Cada namespace existe como un archivo en /proc/<pid>/ns/. Mientras ese archivo esté abierto — por cualquier proceso o file descriptor — el namespace persiste aunque no haya ningún proceso dentro de él:
+ls -la /proc/${NGINX_PID}/ns/
+dr-x--x--x 2 root root 0 mar 26 09:16 .
+dr-xr-xr-x 9 root root 0 mar 26 09:16 ..
+lrwxrwxrwx 1 root root 0 mar 26 09:17 cgroup -> 'cgroup:[4026535754]'
+lrwxrwxrwx 1 root root 0 mar 26 09:17 ipc -> 'ipc:[4026535752]'
+lrwxrwxrwx 1 root root 0 mar 26 09:16 mnt -> 'mnt:[4026535750]'
+lrwxrwxrwx 1 root root 0 mar 26 09:16 net -> 'net:[4026535755]'
+lrwxrwxrwx 1 root root 0 mar 26 09:17 pid -> 'pid:[4026535753]'
+lrwxrwxrwx 1 root root 0 mar 26 09:19 pid_for_children -> 'pid:[4026535753]'
+lrwxrwxrwx 1 root root 0 mar 26 09:17 time -> 'time:[4026531834]'
+lrwxrwxrwx 1 root root 0 mar 26 09:19 time_for_children -> 'time:[4026531834]'
+lrwxrwxrwx 1 root root 0 mar 26 09:17 user -> 'user:[4026531837]'
+lrwxrwxrwx 1 root root 0 mar 26 09:17 uts -> 'uts:[4026535751]'
+Dos procesos que comparten el mismo inode comparten el mismo namespace. Esto es exactamente cómo funciona docker exec: usa setns() para unirse a los namespaces del contenedor antes de ejecutar el comando:
+# nsenter hace lo mismo que docker exec, manualmente.
+# Usa sh (no bash): al entrar al mount namespace, el rootfs pasa a ser
+# el del contenedor. Si la imagen es Alpine, no existe /bin/bash.
+sudo nsenter -t ${NGINX_PID} --pid --net --mount --uts --ipc sh
+# Ahora estás dentro de todos los namespaces del contenedor
+hostname # el hostname del contenedor (p. ej. 0c04908ce4f7)
+ip addr # la red del contenedor (172.17.0.2/16)
+ps aux # los procesos del contenedor
+# PID USER TIME COMMAND
+# 1 root 0:00 nginx: master process nginx -g daemon off;
+# 30 nginx 0:00 nginx: worker process
+# 39 root 0:00 sh
+# 42 root 0:00 ps aux
+Como esta imagen es nginx:alpine, también puedes usar ash en vez de sh. sh es preferible ya que garantiza correr en cualquier imagen no-Alpine (Debian, Ubuntu, RHEL) donde ash no está disponible.
+El par pid_for_children / time_for_children indica el namespace que heredarán los próximos procesos hijos. El truco es que setns() a un PID namespace o a un time namespace no mueve al proceso actual — esas identidades son inmutables tras el nacimiento —, pero sí cambia el namespace al que se unirán los hijos fork()eados después. Por eso estos dos enlaces son distintos de pid y time: el proceso actual sigue en el viejo namespace, pero sus hijos ya nacen en el nuevo.

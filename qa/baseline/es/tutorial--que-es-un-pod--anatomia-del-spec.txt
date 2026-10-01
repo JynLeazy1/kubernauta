@@ -1,0 +1,214 @@
+¿Qué es un Pod?
+Parte 6 de 10
+Anatomía del spec: el YAML como instrucciones al kernel
+Cuando escribes un Pod en YAML, lo que estás haciendo es declarar el estado deseado — Kubernetes se encarga del resto. Pero "el resto" no es magia: cada campo del spec tiene una traducción concreta a una primitiva del sistema operativo. resources.limits se convierte en un cgroup. securityContext se convierte en capabilities y flags de proceso. volumeMounts se convierte en bind mounts antes del pivot_root.
+Esta sección recorre los campos más importantes del spec y muestra a qué instrucción del kernel o llamada al runtime se traducen. Para los conceptos del kernel referenciamos las partes correspondientes del tutorial de contenedores en lugar de re-explicar.
+El árbol del manifest: Pod-level vs container-level
+Antes de entrar campo por campo, vale la pena entender la estructura. El spec de un Pod tiene dos niveles claros — los campos que viven directamente bajo spec afectan al sandbox completo (al pause y a los namespaces compartidos), mientras que los que viven bajo spec.containers[*] aplican uno por cada container:
+apiVersion: v1
+kind: Pod
+spec: # ← Pod-level: afecta al sandbox / pause
+nodeSelector: { ... } # scheduling
+serviceAccountName: ... # token montado en el sandbox
+hostNetwork: false # comparte netns del host
+terminationGracePeriodSeconds: 30
+volumes: # declaración global de volumes
+- name: data
+emptyDir: {}
+containers: # ← lista; los siguientes campos van por container
+- name: app
+image: my-app:1.0
+resources: { ... } # cgroup propio
+securityContext: { ... } # caps y flags propios del proceso
+volumeMounts: # apunta a uno de los volumes de arriba
+- name: data
+mountPath: /var/data
+Esta separación explica un detalle frecuentemente confuso: volumes declara qué volumes están disponibles para este Pod, mientras que volumeMounts dice cómo cada container los monta. Un mismo volume puede aparecer en varios volumeMounts — los containers comparten el mismo bind mount source, exactamente como dos containers compartiendo un directorio en Docker.
+resources.requests y resources.limits → cgroups
+resources:
+requests:
+cpu: "250m"
+memory: "128Mi"
+limits:
+cpu: "500m"
+memory: "256Mi"
+limits es lo que el kernel aplica directamente como cgroup v2. cpu: "500m" se traduce a cpu.max = "50000 100000" (50ms de cada 100ms de período). memory: "256Mi" se traduce a memory.max = 268435456. Si el proceso supera ese límite el OOM killer lo mata y verás oom_kill incrementarse en memory.events.
+requests no es un límite del kernel — es una promesa al scheduler para el binpacking. Kubernetes garantiza que el nodo tiene esos recursos disponibles antes de asignar el Pod. En cgroups v2 se traduce a cpu.weight (peso relativo, no cuota dura): requests.cpu: 250m ≈ cpu.weight ≈ 25.
+securityContext → capabilities y flags del proceso
+Existe en dos niveles que se mergean — los del Pod aplican como default a todos los containers, los del container sobrescriben:
+spec:
+securityContext: # ← Pod-level: defaults para todos los containers
+runAsNonRoot: true # rechaza el Pod si algún container corre como UID 0
+fsGroup: 2000 # GID dueño de los volumes montados
+containers:
+- name: app
+securityContext: # ← container-level: gana sobre el Pod-level
+runAsUser: 1000
+runAsGroup: 1000
+allowPrivilegeEscalation: false
+capabilities:
+drop: ["ALL"]
+add: ["NET_BIND_SERVICE"]
+readOnlyRootFilesystem: true
+seccompProfile:
+type: RuntimeDefault
+# appArmorProfile / seLinuxOptions también van acá
+Algunos campos solo existen a nivel Pod (fsGroup, supplementalGroups, sysctls) porque afectan al sandbox completo o a recursos compartidos. Otros solo a nivel container (capabilities, readOnlyRootFilesystem). El resto puede aparecer en ambos.
+runAsUser / runAsGroup / runAsNonRoot
+runAsUser: 1000 se traduce a un setuid(1000) después del execve; análogo para runAsGroup. Es exactamente la misma mecánica de UIDs que vimos en el tutorial de contenedores en por qué root en un contenedor sigue siendo peligroso: el proceso no es root del namespace, es UID 1000 — con todas las restricciones que eso implica para acceso a archivos y syscalls privilegiadas.
+runAsNonRoot: true es una guarda a nivel kubelet: rechaza el Pod en startup si algún container intenta correr como UID 0. No previene escapes (eso lo hace el user namespace) pero sí evita la clase entera de bugs donde un Dockerfile se olvidó del USER.
+allowPrivilegeEscalation: false
+Activa el flag no_new_privs del kernel vía prctl(PR_SET_NO_NEW_PRIVS, 1). Una vez puesto, el proceso (y todos sus hijos) nunca pueden adquirir más privilegios de los que ya tienen — específicamente:
+Bits setuid/setgid en binarios se ignoran. Ejecutar /usr/bin/sudo o /usr/bin/passwd ya no eleva al proceso a root.
+File capabilities (setcap cap_*) tampoco se aplican. Un binario con cap_net_raw=ep ejecutado en este proceso corre sin esa capability.
+LSM transitions (AppArmor, SELinux) tampoco pueden cambiar a un perfil más permisivo en el siguiente execve.
+Verificable en cualquier proceso:
+cat /proc/<pid>/status | grep NoNewPrivs
+# NoNewPrivs: 1 ← activo
+# Una vez en 1, no se puede revertir. Es un boolean monotónico.
+Es el flag más barato y efectivo para hardening. kubectl run normal lo deja en 0 por default; explícitamente allowPrivilegeEscalation: false lo activa.
+capabilities drop/add
+Modifica los conjuntos de capabilities del proceso. drop: ["ALL"] deja el bounding set vacío; el add reactiva solo las que enumeres. Las herramientas para listar qué capabilities tiene un container se cubren en Cómo listar capabilities en Linux: capsh --print, getpcaps <pid>, getcap.
+readOnlyRootFilesystem: true
+Monta el OverlayFS del container con la flag MS_RDONLY del kernel. Cualquier write al rootfs falla con EROFS — útil para inmutabilidad y para forzar que la app use volumes explícitos (emptyDir) en los paths donde sí necesita escribir.
+Verificable comparando un container con la flag y otro sin ella:
+# Sin readOnlyRootFilesystem (default)
+kubectl run rw-test --image=alpine --restart=Never -- \
+sh -c "touch /test && mount | grep ' / '"
+# /test created OK
+# overlay on / type overlay (rw,relatime,...) ← rw
+# Con readOnlyRootFilesystem: true
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata: { name: ro-test }
+spec:
+containers:
+- name: app
+image: alpine
+command: ["sh","-c","touch /test || mount | grep ' / '"]
+securityContext:
+readOnlyRootFilesystem: true
+EOF
+kubectl logs ro-test
+# touch: /test: Read-only file system ← EROFS
+# overlay on / type overlay (ro,relatime,...) ← ro
+Las apps que escriben a /tmp, /var/log o /var/run seguirán funcionando si esos paths se montan como emptyDir separados. Patrón común:
+volumeMounts:
+- { name: tmp, mountPath: /tmp }
+- { name: run, mountPath: /var/run }
+volumes:
+- { name: tmp, emptyDir: {} }
+- { name: run, emptyDir: {} }
+seccompProfile → filtrado de syscalls
+seccomp es un filtro de syscalls a nivel kernel — para cada syscall que el proceso intenta ejecutar, el kernel evalúa un BPF program y decide si la deja pasar o la bloquea con EPERM / SIGSYS. Tres modos:
+securityContext:
+seccompProfile:
+type: RuntimeDefault # perfil del runtime (containerd's default-allowlist)
+# type: Unconfined # NINGÚN filtro — peligroso
+# type: Localhost # perfil custom desde un archivo del nodo
+# localhostProfile: profiles/audit.json
+RuntimeDefault aplica el perfil que trae containerd: una lista de allowlist de ~340 syscalls que cubre el 99% de las apps. Bloquea cosas como kexec_load, perf_event_open, userfaultfd que ninguna app legítima necesita pero los exploits sí.
+Desde Kubernetes 1.27, el campo seccompDefault: true en la config de kubelet activa RuntimeDefault para todos los Pods aunque no lo declaren. Vale la pena habilitarlo a nivel de cluster — el costo es mínimo y la superficie de ataque baja considerablemente.
+appArmorProfile y seLinuxOptions → MAC
+Ambos son Mandatory Access Control: una capa adicional al modelo discrecional de Linux (UIDs, permisos POSIX). Cuál uses depende del nodo:
+AppArmor (Ubuntu, Debian, SUSE) — perfiles basados en path, más fáciles de escribir. K8s 1.30+ soporta el campo nativo:
+securityContext:
+appArmorProfile:
+type: RuntimeDefault # cri-containerd-default
+# type: Localhost
+# localhostProfile: my-profile
+Antes de 1.30 era una annotation: container.apparmor.security.beta.kubernetes.io/<container>: ....
+SELinux (RHEL, CentOS, Fedora) — perfiles basados en labels (type/role/user). Más estricto, más complejo:
+securityContext:
+seLinuxOptions:
+level: "s0:c123,c456"
+type: "container_t"
+kubelet asigna labels únicos a cada Pod por default; explícitamente sobrescribirlos es raro y solo útil cuando integrás con políticas existentes del sistema.
+Verificación — cat /proc/<pid>/attr/current muestra el contexto LSM activo del proceso:
+# En un nodo SELinux
+cat /proc/$(pgrep nginx)/attr/current
+# system_u:system_r:container_t:s0:c123,c456
+# En un nodo AppArmor
+cat /proc/$(pgrep nginx)/attr/current
+# cri-containerd.apparmor.d (enforce)
+Si el archivo está vacío (cat: ... empty), el host no tiene LSM activo o el container está en modo Unconfined. AppArmor / SELinux no se mezclan — un kernel solo puede tener uno o el otro, no ambos.
+volumeMounts → bind mounts
+volumeMounts:
+- name: config
+mountPath: /etc/app/config
+readOnly: true
+Cada volumeMount es un bind mount que runc ejecuta antes del pivot_root. El directorio del volumen en el host se monta en el path especificado del contenedor. readOnly: true agrega MS_RDONLY al mount, que el kernel respeta independientemente de los permisos del filesystem subyacente.
+Para volumes tipo emptyDir, kubelet crea un directorio en el host (típicamente bajo /var/lib/kubelet/pods/<uid>/volumes/kubernetes.io~empty-dir/<name>/) y lo bind-montea. Para configMap y secret, kubelet escribe los archivos primero en un tmpfs y luego lo bind-montea — así el contenido nunca toca el disco persistente del nodo.
+Tipos de volumes
+Los volumes declarados arriba en el spec son la fuente — qué tipo elijas determina qué hace kubelet por detrás. Los más comunes:
+emptyDir — directorio efímero en el host. Vive lo que vive el Pod. Útil para staging entre containers (init container escribe, app container lee) o como scratch space. Con medium: Memory queda en tmpfs.
+hostPath — bind mount directo de un path del host. Peligroso en aplicaciones (escapa el aislamiento del filesystem); reservado para agentes de nodo (Calico, kube-proxy, observability) que necesitan ver /proc, /var/log o /run/containerd/containerd.sock.
+configMap / secret — kubelet renderiza los keys del ConfigMap/Secret a archivos individuales en un tmpfs y los bind-montea. Los Secrets quedan en RAM, nunca en disco persistente del nodo.
+projected — combina varias fuentes (Secrets, ConfigMaps, downward API, ServiceAccount tokens) en un solo mount point. Es el mecanismo del token de ServiceAccount que vimos en la parte 4 (kube-api-access-XXXX en /var/run/secrets/kubernetes.io/serviceaccount/).
+persistentVolumeClaim — referencia a un PersistentVolume que un CSI driver (AWS EBS, Ceph RBD, NFS, etc.) provee. kubelet le pide al CSI que monte el storage en el nodo, y luego bind-montea el path resultante en el container. Sobrevive recreaciones del Pod.
+downwardAPI — expone metadata del Pod (nombre, namespace, labels, IP, recursos) como archivos. Útil cuando una app necesita saber su propia identidad sin hablar con el API server.
+Sea cual sea el tipo, el resultado final dentro del container es el mismo: un bind mount en el path declarado por volumeMounts.mountPath. Lo que cambia es qué pone kubelet del lado del host antes del bind.
+env → variables de entorno del proceso
+env:
+- name: DB_HOST
+value: postgres
+- name: DB_PASSWORD
+valueFrom:
+secretKeyRef:
+name: db-secret
+key: password
+Las variables simples se pasan directamente a execve. Las que vienen de Secrets o ConfigMaps las resuelve kubelet antes de arrancar el contenedor y las inyecta igual. Desde la perspectiva del proceso no hay diferencia — son environ[]. Por eso un cat /proc/<pid>/environ desde el host expone los valores de los Secrets en texto plano: la "encriptación" termina en etcd; en el proceso son strings.
+command y args → el exec del proceso
+command: ["nginx"]
+args: ["-g", "daemon off;"]
+command sobreescribe el ENTRYPOINT de la imagen; args sobreescribe el CMD. Son los argumentos que runc pasa a execve al arrancar el proceso. Si no se especifican, runc usa los del Dockerfile (que runc spec copió al config.json al construir el bundle OCI — ver qué hace el container runtime).
+livenessProbe / readinessProbe → polling de kubelet
+livenessProbe:
+httpGet:
+path: /healthz
+port: 8080
+periodSeconds: 10
+Las probes no las ejecuta el kernel — las ejecuta kubelet desde fuera del contenedor. Para httpGet, kubelet hace una petición HTTP al Pod desde su propio proceso. Para exec, kubelet le pide a containerd que corra el comando dentro del contenedor vía CRI (ExecSync). Para tcpSocket, kubelet abre una conexión TCP al puerto. Los detalles operativos de los tres tipos (liveness vs readiness vs startup) y sus tradeoffs están en la parte 8 de este tutorial.
+serviceAccountName → identidad del Pod ante el API server
+spec:
+serviceAccountName: my-app # default: "default" del namespace
+El serviceAccountName determina quién es el Pod cuando habla con el API server. kubelet monta automáticamente un volume projected en /var/run/secrets/kubernetes.io/serviceaccount/ con tres archivos: token (un JWT firmado por el API server), ca.crt (el CA del cluster) y namespace. Cualquier librería cliente — client-go, kubernetes-python, etc. — los lee por default y construye sus requests con Authorization: Bearer <token>.
+Los permisos del Pod los define RBAC: el ServiceAccount se vincula a uno o más Roles/ClusterRoles vía RoleBinding/ClusterRoleBinding. Si tu app solo necesita leer ConfigMaps, le das un Role con verbs: ["get","list","watch"] sobre resources: ["configmaps"]. Sin RoleBinding, el ServiceAccount no puede leer nada — pero igual existe y igual recibe su token; "no autorizado" no significa "anónimo".
+Si tu Pod no necesita hablar con el API server (la mayoría de apps stateless), apagá el montaje del token — reduce superficie de ataque y evita filtraciones accidentales del JWT:
+spec:
+automountServiceAccountToken: false # no monta el token en /var/run/secrets/...
+ports: la trampita informativa
+ports:
+- containerPort: 8080
+name: http
+protocol: TCP
+Acá hay una sutileza que confunde a casi todo el mundo: ports no abre nada. Es solo metadata. El proceso adentro del container es libre de escuchar en cualquier puerto que quiera; el kernel le da acceso al stack de red completo del namespace, sin verificar si está declarado.
+Lo que sí hace ports: (a) le da nombre a un puerto para que un Service lo referencie con targetPort: http en lugar de un número; (b) lo expone en kubectl describe pod y en eventos; (c) si declarás hostPort, kubelet sí abre el mapeo en el host vía iptables/portmap CNI plugin.
+El típico bug: declarás containerPort: 8080 pero la app escucha en 9090. kubectl get pod dice "Running", todo se ve bien — hasta que el Service intenta conectar al 8080 y falla. ss -tlnp dentro del Pod (o vía nsenter al netns desde el host) muestra el puerto real. Regla práctica: tratá containerPort como documentación, no como configuración.
+imagePullPolicy → cuándo llama kubelet a PullImage
+imagePullPolicy: IfNotPresent # solo descarga si no está en caché local
+Tres valores posibles, cada uno controla cuándo kubelet invoca la operación PullImage del CRI. Always dispara la descarga en cada arranque del contenedor — útil para tags mutables como latest donde quieres siempre la versión más reciente. IfNotPresent (el default cuando usas un tag específico) descarga solo si el digest no está en la caché del runtime — el caso común para producción con tags inmutables. Never nunca descarga; falla si la imagen no está local — útil para entornos air-gapped o pre-loaded.
+Del YAML al cgroup, en vivo
+Para verificar que esto no es teoría, tomamos un Pod del cluster con sus campos declarados y leemos los archivos del kernel correspondientes. La estructura de cgroups que kubelet construye fue cubierta a fondo en la parte 6 del tutorial de contenedores; aquí solo resumimos los paths.
+# En el nodo donde corre el Pod:
+POD=$(kubectl get pod nginx -o jsonpath='{.metadata.uid}' | tr - _)
+QOS=burstable # o besteffort / guaranteed según resources
+SLICE=/sys/fs/cgroup/kubepods.slice/kubepods-${QOS}.slice/\
+kubepods-${QOS}-pod${POD}.slice
+ls ${SLICE}
+# kubepods-${QOS}-pod${POD}.slice/
+# cri-containerd-3a9dd44...scope/ ← pause container
+# cri-containerd-b2171cb14...scope/ ← container de aplicación
+# Leer el cpu.max efectivo del container de aplicación
+SCOPE=${SLICE}/cri-containerd-b2171cb14...scope
+cat ${SCOPE}/cpu.max
+# 50000 100000 ← coincide con limits.cpu: 500m
+cat ${SCOPE}/memory.max
+# 178257920 ← ≈ 170 MB para limits.memory: 170Mi
+cat ${SCOPE}/cpu.weight
+# 11 ← derivado de requests.cpu (bajo)
+# Verificar capabilities efectivas
+cat /proc/$(pgrep -f nginx | head -1)/status | grep Cap
+# CapEff: 00000000a80425fb ← reducido por capabilities.drop/add
+Los valores que escribiste en el YAML aparecen literalmente en archivos del kernel. No hay capa intermedia oculta — el "spec" del Pod es una receta que se materializa en cgroup files, mount entries, capability sets y argumentos de execve. Cualquier inconsistencia entre lo declarado y lo aplicado se ve aquí, antes de que la app diga "algo no funciona".

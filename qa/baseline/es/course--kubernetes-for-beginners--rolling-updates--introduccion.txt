@@ -1,0 +1,29 @@
+Kubernetes para principiantes
+Capítulo 11 de 21 · Sección 1 de 7
+Introducción: actualizar sin downtime
+El problema del downtime al actualizar
+Actualizar una aplicación en producción sin interrumpir a los usuarios requiere una estrategia cuidadosa. Kubernetes ofrece dos estrategias de Deployment integradas.
+Recreate
+Termina todos los Pods viejos antes de crear los nuevos. Simple pero produce downtime. Útil cuando no puedes correr dos versiones simultáneamente (esquema de BD incompatible, puerto único).
+strategy:
+type: Recreate
+RollingUpdate (por defecto)
+Reemplaza los Pods de forma incremental. Durante la transición coexisten Pods de la versión anterior y la nueva.
+strategy:
+type: RollingUpdate
+rollingUpdate:
+maxUnavailable: 1
+maxSurge: 1
+Comandos esenciales
+kubectl set image deployment/mi-app app=mi-imagen:v2
+kubectl rollout status deployment/mi-app
+kubectl rollout undo deployment/mi-app
+kubectl rollout history deployment/mi-app
+Readiness probes: la clave del zero-downtime
+Un readiness probe indica a Kubernetes cuándo un Pod está listo para recibir tráfico. Sin él, el tráfico puede llegar a un Pod que aún está iniciando.
+readinessProbe:
+httpGet:
+path: /healthz
+port: 8080
+initialDelaySeconds: 5
+periodSeconds: 10

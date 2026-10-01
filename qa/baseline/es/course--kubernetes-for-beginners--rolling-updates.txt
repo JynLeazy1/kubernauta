@@ -1,0 +1,26 @@
+Kubernetes para principiantes · Capítulo 11 de 21
+Rolling Updates y estrategias de Deployment
+7 secciones
+En este capítulo
+01
+Introducción: actualizar sin downtime
+→
+02
+RollingUpdate: maxSurge y maxUnavailable
+→
+03
+Recreate: cuándo tiene sentido
+→
+04
+Blue/Green y Canary: patrones más allá del Deployment base
+→
+05
+Readiness probes durante un rollout
+→
+06
+Rollback: cómo volver atrás
+→
+07
+Resumen
+→
+Empezar el capítulo →

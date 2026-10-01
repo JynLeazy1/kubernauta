@@ -1,0 +1,23 @@
+Kubernetes para principiantes · Capítulo 18 de 21
+Logs, métricas y traces: los tres pilares
+6 secciones
+En este capítulo
+01
+Introducción: qué es observabilidad y qué no
+→
+02
+Logs: stdout/stderr, drivers y agregación
+→
+03
+Métricas: modelo pull vs push
+→
+04
+Traces: OpenTelemetry como estándar
+→
+05
+Events y kubectl describe: la primera capa de debug
+→
+06
+Resumen
+→
+Empezar el capítulo →

@@ -1,0 +1,52 @@
+Kubernetes for Beginners
+Chapter 2 of 21 · Section 4 of 7
+Controllers: The Pattern That Makes Everything Work
+We've been talking about controllers the entire course. We saw them in the control plane, they appeared in the request flow, and we mentioned them in the previous sub-part when describing the loop. Time to formalize them: what they are, how they're built, and why the whole model depends on them.
+What a controller is
+A controller is a process (or a piece inside a larger process) that implements the control pattern: it continuously watches the state of certain objects and acts when observed state differs from desired state.
+Not an exotic abstraction. The official docs literally define them as "control loops that watch the state of your cluster, then make or request changes where needed". Thermostat and boiler: the controller observes, compares, and acts.
+The pattern, with code
+Any controller — the ReplicaSet controller, a custom operator of yours, a third-party one — fits this shape:
+for {
+event := waitForChangeInApiServer()
+object := fetchDesiredState(event)
+real := observeRealWorld(object)
+if real != desired(object) {
+executeActionFor(object)
+}
+reportStatus(object)
+}
+Illustrative pseudocode. For the real pattern in client-go (informers + workqueues), read the Kubernetes project's sample-controller.
+The "action" depends on the controller type:
+ReplicaSet controller: if there are fewer Pods than declared, create more. If more, delete some.
+Deployment controller: manages a ReplicaSet and its previous revisions to implement rolling updates.
+Node controller: marks nodes as NotReady if they stop reporting, and eventually evicts their Pods.
+Service controller: on cloud clusters, requests a LoadBalancer from the provider when someone creates a Service of type LoadBalancer.
+Each is independent, each watches its own resources, and they all coexist without knowing about each other.
+Informers: how a controller "watches"
+In real implementations (both in kube-controller-manager's controllers and in operators built with client-go or frameworks like Kubebuilder), the watching is done by a piece called an informer.
+An informer:
+Does an initial LIST against the apiserver to load current state of all objects of the type it cares about.
+Opens a persistent WATCH to receive every change (ADDED, MODIFIED, DELETED) from that point on.
+Maintains a local cache with all those objects.
+When a change arrives, it pushes the object's name onto a workqueue.
+One or several workers pull items from the queue and run the reconcile.
+The local cache matters: when the reconcile needs to query state, it reads from the cache — not from the apiserver. That drastically reduces apiserver load and makes it possible to run hundreds of controllers simultaneously.
+Deep dive
+Informers, workqueues, DeltaFIFO, and the rest of the client-go machinery deserve their own post. They're on the backlog as "Informers and workqueues in client-go".
+Single source of truth: the apiserver
+A fundamental property of the model: controllers never read or write etcd directly. Everything goes through the apiserver.
+This has several consequences worth understanding:
+Centralized audit: if you want to know who changed what, apiserver audit logs have it all.
+Admission uniformly applied: validations and mutating webhooks run for anyone — humans, controllers, tools — writing through the API.
+etcd isolation: if you swap etcd for another database tomorrow, controllers don't notice.
+Resilience: if the apiserver goes down, controllers pause — they don't corrupt anything. When it comes back, they reconcile and everything proceeds.
+Controllers and extensibility
+Built-in controllers cover the standard types (Deployments, Jobs, Services, …). But the model is open: you can write your own controller to reconcile your own types (CRDs, covered in the next sub-part) or even to augment behavior on existing types.
+That pattern — a CRD describing a thing + a controller that reconciles it — is what's known as the Operator pattern. It's not "a feature" of Kubernetes; it's the natural application of the control pattern to a specific domain. There are operators for almost anything: PostgreSQL, Kafka, Prometheus, cert-manager, Argo CD.
+What to remember for the KCNA
+A controller is a loop that observes desired vs real state and acts to converge them.
+Controllers talk to the apiserver, never to etcd directly.
+Controllers are independent: each watches its own resources, and the system emerges from their collaboration.
+The Operator pattern = CRD + custom controller. The natural extension of the model.
+With this you understand 100% of how the declarative model works. In the next sub-part we open the piece that keeps the API from being closed: CRDs.

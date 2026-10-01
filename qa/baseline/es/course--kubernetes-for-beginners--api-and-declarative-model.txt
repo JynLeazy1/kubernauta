@@ -1,0 +1,26 @@
+Kubernetes para principiantes · Capítulo 2 de 21
+La API de Kubernetes y el modelo declarativo
+7 secciones
+En este capítulo
+01
+Introducción: el contrato declarativo
+→
+02
+Objetos, recursos y el loop de reconciliación
+→
+03
+Grupos de API, versiones y anatomía de un objeto
+→
+04
+Controllers: el patrón que hace todo funcionar
+→
+05
+CRDs y extensibilidad: la API no es fija
+→
+06
+kubectl, --dry-run y server-side apply
+→
+07
+Resumen: por qué el modelo declarativo importa para la KCNA
+→
+Empezar el capítulo →

@@ -1,0 +1,29 @@
+Kubernetes for Beginners
+Chapter 3 of 21 · Section 8 of 8
+Summary: The Pod as the Minimum Unit
+We're closing the Pod chapter, the most fundamental object in the cluster. If you take only one idea, let it be this: a Pod is not a container by another name; it's the environment where one or more containers exist. Everything else follows from that.
+The mental map
+A Pod is:
+A set of Linux namespaces (network, IPC, optionally PID) created before any application container.
+Held alive by the pause container, which keeps the namespaces around while app containers restart.
+Inhabited by one or more containers that share networking (localhost), can share volumes, and live and die together.
+Ephemeral: nobody resurrects them on their own. The "keep N running" intelligence lives in workload controllers.
+When someone draws a little box labeled Pod, it's no longer an empty box: it's that namespace bundle with its containers inside.
+What we saw, compressed
+Manifest anatomy: apiVersion: v1, kind: Pod, metadata, spec.containers, optionally spec.volumes, probes, and restartPolicy.
+Single vs multi-container: default to one; multi only when containers really have to live together.
+Init containers, sidecars, and ambassadors: the three classic patterns. Native sidecars since 1.29 via restartPolicy: Always on initContainers.
+Lifecycle: phases, conditions, livenessProbe, readinessProbe, startupProbe, restartPolicy. CrashLoopBackOff = exponential backoff.
+Commands: get, describe, logs, exec handle almost everything.
+Who manages Pods: Deployment / ReplicaSet, StatefulSet, DaemonSet, Job, CronJob.
+KCNA keys from the chapter
+Pod = shared environment (not a container alone).
+All containers in the Pod share IP and network namespace. They talk over localhost.
+Volumes are declared in spec.volumes and mounted via volumeMounts per container.
+Init containers run first and sequentially; must finish OK.
+livenessProbe → restart. readinessProbe → remove IP from Service endpoints. startupProbe → only at startup.
+Default restartPolicy: Always. Jobs use OnFailure or Never.
+In production, Pods are managed by a controller — not by you.
+What's next
+The next chapter tackles the controller you'll touch most in your Kubernetes life: ReplicaSets and Deployments. We'll see how Kubernetes keeps N replicas, how the Deployment orchestrates rolling updates, what labels and selectors are, and how to roll back when something goes wrong.
+From here on, every chapter opens a different object (Service, Namespace, Ingress, …), but the pattern is always the same: what it declares, which controller reconciles it, what happens to the Pods it creates. This chapter gave you the foundation everything else will lean on.

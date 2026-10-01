@@ -1,0 +1,84 @@
+What exactly is a Container?
+Part 8 of 9
+What the Container Runtime Does
+When you run docker run nginx, the request passes through several layers of software before reaching the kernel. Understanding these layers is essential for diagnosing problems, configuring security, and reasoning about production behavior.
+The architecture: Docker → containerd → runc
+docker run nginx
+│
+▼
+dockerd ← The Docker daemon. Manages the API, images, networks, volumes.
+│ gRPC
+▼
+containerd ← The high-level container runtime. Manages the lifecycle.
+│ ttRPC (initial shim spawn via fork+exec)
+▼
+containerd-shim ← An intermediary process — one per container with Docker,
+│ one per Pod with CRI/Kubernetes (grouped by sandbox-id).
+│ fork+exec (once per runc create / start / delete invocation)
+▼
+runc ← The low-level OCI runtime. Creates the container and exits.
+│ syscalls
+▼
+kernel ← clone3(), mount(), pivot_root(), capset(), seccomp(), execve()...
+runc is the one that actually touches the kernel. Once the container is running, runc exits — the container stays alive under containerd-shim.
+containerd-shim exists for three concrete reasons:
+It carries the container's stdout and stderr. Per the official doc: "I/O for a container is provided by the client to the shim via fifo on Linux, named pipes on Windows, or log files on disk." The shim owns those descriptors, which is why docker logs and kubectl logs keep working even after runc has exited.
+It survives containerd restarts. The shim runs as an independent process with its own ttRPC socket; when containerd restarts, the doc states explicitly: "when containerd boots and reconnects to shims. If a bundle is still on disk but containerd cannot connect to a shim, the delete command is invoked." Containers keep running and containerd reconnects to the shim on startup — the cleanup path only fires if the shim is gone.
+It acts as a sub-reaper for the container's PID 1. Direct quote from the doc: "The shim process takes responsibility as a sub-reaper to cleanup exited containers or setns(2) processes." When the container process exits, the shim adopts it, reaps it with wait(), and reports the exit code back to containerd over ttRPC.
+The OCI bundle
+The OCI (Open Container Initiative) standard defines a bundle format in its runtime-spec: a directory with two elements:
+/bundle/
+├── config.json ← Complete container specification
+└── rootfs/ ← The root filesystem
+The config.json describes everything: which namespaces to create, which capabilities to have, mounts, environment variables, the entrypoint, cgroups, and seccomp rules. It is exactly the same information you passed via unshare flags when building a container by hand, now packaged as JSON.
+mkdir /tmp/bundle && cd /tmp/bundle
+docker export $(docker create nginx) | tar -xC rootfs/
+runc spec # Generates a default config.json
+# Inspect what it generated
+cat config.json | jq '.process.capabilities'
+cat config.json | jq '.linux.namespaces'
+The exact runc sequence
+When executing runc run, the process performs in order:
+Validate the OCI bundle (config.json + rootfs/).
+Create the cgroup in /sys/fs/cgroup/ with the specified limits, and write its own PID to cgroup.procs so the future clone inherits the cgroup.
+Call clone3() with the namespace flags: CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWCGROUP, and optionally CLONE_NEWUSER if config.json declares a user namespace. These are eight of the eight types minus time, which runc does not touch by default.
+The child process, now inside the new namespaces, runs mount --make-rprivate / to prevent mounts from propagating back to the host. Without this, pivot_root fails with EINVAL.
+Configure the mounts from config.json: bind mounts, /proc, /dev, /sys.
+pivot_root to the container rootfs, followed by umount -l of the old root — this removes the host's mount table from the namespace.
+Apply capabilities via capset() and prctl(PR_CAPBSET_DROP, ...): reduce the bounding set to the one declared in config.json.
+Apply the seccomp profile via the seccomp(SECCOMP_SET_MODE_FILTER, ...) syscall (the older prctl(PR_SET_SECCOMP) still works as a fallback, but the dedicated syscall is the modern API since kernel 3.17).
+execve() the entrypoint defined in config.json.
+runc exits. The container process remains under containerd-shim, with the cgroup, namespaces, and capabilities applied.
+Verifying each step live
+# Use strace to observe the syscalls runc makes.
+# IMPORTANT: on modern kernels (and recent glibc) runc uses clone3,
+# not clone. You need to ask for both explicitly, or use the %process
+# alias which covers clone/clone3/fork/vfork/execve at once.
+sudo strace -f -e trace=%process,unshare,pivot_root,mount \
+runc run --bundle /tmp/bundle my-container 2>&1 | head -50
+# Clone the process with namespace flags (clone3 on kernels ≥ 5.3)
+clone3({flags=CLONE_NEWPID|CLONE_NEWNET|CLONE_NEWNS|
+CLONE_NEWUTS|CLONE_NEWIPC|CLONE_NEWCGROUP,
+exit_signal=SIGCHLD,
+stack=..., stack_size=...}, size=88) = 12345
+# Make propagation private (so the next bind mount does not leak to the host)
+mount("none", "/", NULL, MS_REC|MS_PRIVATE, NULL)
+# Mount the rootfs
+mount("/tmp/bundle/rootfs", "/tmp/bundle/rootfs", NULL, MS_BIND|MS_REC, NULL)
+# pivot_root
+pivot_root(".", ".old_root")
+# Mount /proc inside the container
+mount("proc", "/proc", "proc", MS_NOSUID|MS_NODEV|MS_NOEXEC, NULL)
+# Execute the entrypoint
+execve("/docker-entrypoint.sh", ["/docker-entrypoint.sh", "nginx", "-g", "daemon off;"], ...)
+containerd vs Docker: the distinction that matters
+Kubernetes does not use Docker. It uses containerd directly (or CRI-O) through the Container Runtime Interface (CRI). Docker is just a convenience layer on top of containerd for development use. In production with Kubernetes:
+kubelet → CRI → containerd → runc → kernel
+The flow is shorter and the result is identical. When Kubernetes creates a Pod, kubelet asks containerd to create the specified containers. containerd calls runc for each one. runc applies the same steps described above — the same steps you applied by hand in Step 7 of the previous chapter.
+Alternative runtimes
+runc is the OCI reference — written in Go, uses host namespaces directly, the general case. When you need different guarantees there are alternatives with the same OCI interface:
+crun is a drop-in replacement written in C. Same config.json, same namespaces, but it starts significantly faster and uses less memory — useful when running hundreds of containers per node. It is Podman's default runtime.
+youki is a modern OCI runtime written in Rust. Same profile as runc, but with Rust's memory-safety guarantees; interesting as an engineering experiment and increasingly adopted in production.
+gVisor (runsc) takes a different approach: instead of letting the container use the host kernel's syscalls, it intercepts them and executes them in a user-space kernel (Sentry). Isolation is much stronger — a host kernel vulnerability is out of reach from inside — at the cost of per-syscall overhead. Appropriate for multi-tenancy and untrusted workloads.
+kata-containers goes further: each container runs inside a lightweight VM with its own kernel (KVM + QEMU, or Firecracker). Isolation is VM-grade, not namespace-grade. Used when the runc container-kernel boundary is not enough — typically for high-risk third-party code.
+All four honor the same OCI interface, so Kubernetes can swap them per Pod via RuntimeClass. You can use runc for your public API and kata-containers for a Pod running untrusted third-party code, in the same cluster.

@@ -1,0 +1,26 @@
+Kubernetes for Beginners · Chapter 4 of 21
+ReplicaSets and Deployments: Keeping Your App Alive
+7 sections
+In this chapter
+01
+Introduction: Why You Don't Use Pods Directly
+→
+02
+ReplicaSet: The Loop That Keeps N Replicas
+→
+03
+Deployment: A Layer on Top of ReplicaSet
+→
+04
+Labels and Selectors: The Glue of the Model
+→
+05
+Scaling and Updating: The Basic Commands
+→
+06
+Rollback and Revisions
+→
+07
+Summary: Pod → ReplicaSet → Deployment
+→
+Start the chapter →

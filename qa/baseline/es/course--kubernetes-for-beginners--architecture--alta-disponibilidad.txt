@@ -1,0 +1,45 @@
+Kubernetes para principiantes
+Capítulo 1 de 21 · Sección 6 de 7
+Alta disponibilidad: por qué el plano de control no es una sola máquina
+Hasta ahora hemos hablado del control plane como si viviera en una sola máquina. Para aprender, está bien: es más fácil imaginar un servidor con los cuatro procesos corriendo, etcd al lado, y los workers conectándose. Pero en producción nadie corre Kubernetes así. Y cuando entiendas por qué, vas a ver también por qué la arquitectura reactiva de la que hablamos en la sub-parte anterior no es un detalle de diseño — es lo que hace posible la alta disponibilidad.
+Single control plane: el problema
+Imagina un cluster con un solo servidor de control plane. Un reinicio, una falla de disco, un cable mal conectado, y el cluster queda ciego:
+Ningún kubectl funciona.
+Los controllers no reconcilian nada.
+Si un Pod muere, nadie lo vuelve a crear.
+Si un nodo se cae, nadie redistribuye sus Pods.
+Las cargas que ya están corriendo sobreviven un rato — kubelet es autónomo mientras sus Pods sigan vivos — pero el cluster deja de auto-regularse. Para algo que vende la promesa de "self-healing", tener un control plane mortal es contradictorio.
+La solución: control plane replicado
+En producción, el control plane se despliega en múltiples nodos — típicamente 3 o 5 — y cada componente se replica con estrategias distintas según su naturaleza.
+apiserver: stateless, detrás de un load balancer
+El kube-apiserver es, por diseño, sin estado. Todo lo que sabe lo guarda en etcd. Eso significa que puedes correr varias réplicas en paralelo: todas atienden peticiones, todas leen y escriben de etcd.
+Delante se pone un load balancer (HAProxy, un LB del cloud, keepalived+VIP, lo que sea) que reparte las peticiones. Si una réplica se cae, el LB saca su IP del pool y las demás absorben el tráfico. kubectl y los demás componentes siguen funcionando como si nada.
+etcd: quórum distribuido
+Como vimos en la sub-parte anterior, etcd corre típicamente en 3 o 5 nodos con Raft. La regla de la mayoría significa que:
+3 nodos → sobrevive a la caída de 1.
+5 nodos → sobrevive a la caída de 2.
+Si pierdes la mayoría, etcd entra en modo read-only y no acepta escrituras. El cluster no se destruye, pero no puedes cambiar nada hasta que recuperes quórum.
+scheduler y controller-manager: leader election
+El kube-scheduler y el kube-controller-manager son casos distintos: si dos réplicas del scheduler tomaran decisiones en paralelo, podrías asignar el mismo Pod a dos nodos distintos. Mal.
+La solución es leader election: varias réplicas corren en paralelo, pero solo una está "activa" en cada momento. Se coordinan usando un Lease (un objeto de Kubernetes diseñado exactamente para esto) guardado en etcd. El líder renueva su lease cada pocos segundos. Si deja de renovarlo — porque se cayó — otra réplica toma el relevo.
+El resultado: redundancia sin riesgo de doble decisión. Los otros procesos están standby, listos para tomar el mando.
+cloud-controller-manager: igual que controller-manager
+Cuando existe, usa el mismo patrón de leader election que el controller-manager.
+Los worker nodes en este esquema
+Los worker nodes ni se enteran de si el control plane es uno o cinco. Desde la óptica de kubelet, lo único que cambia es la URL del apiserver — apunta al LB en vez de a una IP fija.
+Y algo importante: los workers son resilientes a caídas del control plane. Mientras kubelet pueda llegar al apiserver (aunque sea intermitentemente), sigue haciendo su trabajo. Si el control plane entero desaparece por unos minutos, los Pods que ya corren siguen vivos. La "inteligencia" está distribuida.
+Tres nodos, una topología típica
+El setup más común en producción (fuera de los clusters gigantes) es 3 nodos de control plane donde cada uno corre:
+Una réplica de kube-apiserver.
+Una instancia de etcd (miembro del cluster Raft).
+Una réplica de kube-scheduler (solo una es líder).
+Una réplica de kube-controller-manager (solo una es líder).
+Delante, un LB hacia los apiservers. Los workers apuntan al LB. Toleras la caída de 1 nodo de control plane sin interrupción visible.
+Herramientas como kubeadm y los clusters gestionados (EKS, GKE, AKS) implementan exactamente este patrón por debajo. Cuando creas un cluster "administrado", el control plane HA es lo que el cloud provider te está dando hecho.
+Qué necesitas saber para la KCNA
+El control plane se replica en producción; nunca es una sola máquina.
+apiserver es stateless → se escala horizontalmente detrás de un LB.
+etcd requiere quórum (3 o 5 nodos).
+scheduler y controller-manager usan leader election.
+Los workers sobreviven a caídas del control plane; los Pods corriendo no se caen.
+En la siguiente sub-parte cerramos el capítulo con un resumen visual y te damos el mapa mental completo que vas a llevar al resto del curso.

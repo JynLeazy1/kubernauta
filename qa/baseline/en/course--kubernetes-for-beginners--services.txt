@@ -1,0 +1,26 @@
+Kubernetes for Beginners · Chapter 9 of 21
+Kubernetes Services: ClusterIP, NodePort, and LoadBalancer
+7 sections
+In this chapter
+01
+Introduction: Pods Are Ephemeral, Services Are Not
+→
+02
+ClusterIP: The Stable Internal Address
+→
+03
+NodePort: Exposing on Every Node
+→
+04
+LoadBalancer: Cloud Integration
+→
+05
+kube-proxy: How a Service Is Implemented (iptables / ipvs / nftables)
+→
+06
+Endpoints and EndpointSlices
+→
+07
+Summary
+→
+Start the chapter →

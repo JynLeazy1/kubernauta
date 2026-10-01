@@ -1,0 +1,33 @@
+¿Qué es realmente un contenedor?
+Parte 9 de 9
+Resumen de la serie
+Llegaste al final. Si seguiste la serie completa, ahora tienes un modelo mental preciso de qué es un contenedor — no una metáfora, sino una descripción mecánica de las primitivas del kernel que lo hacen posible.
+El mapa completo
+Un contenedor es la composición de cinco mecanismos del kernel, cada uno resolviendo una pregunta distinta:
+Namespaces (clone(), unshare(), setns()) aislan lo que el proceso ve — PID, hostname, red, mounts, IPC, cgroups, UIDs y tiempo. Los ocho tipos con sus sutilezas están en Linux Namespaces, incluyendo la diferencia entre "estar dentro del namespace" y "ver al proceso correcto en /proc", y el detalle del user namespace que sustenta los contenedores rootless: UID 0 adentro mapea a un UID no privilegiado afuera, pero sudo podman no es rootless — solo Podman ejecutado como usuario normal lo es.
+Capabilities (capset(), /proc/<pid>/status) rompen el privilegio binario "eres root o no" en 41 llaves granulares. Docker arranca con 14 activas; CAP_SYS_ADMIN, CAP_NET_ADMIN, CAP_SYS_MODULE y el resto de las peligrosas quedan fuera. Detalles en Linux Capabilities.
+pivot_root (pivot_root()) cambia la raíz del filesystem a nivel de mount namespace — a diferencia de chroot, que solo toca el puntero del proceso. Combinado con umount -l del viejo root, el filesystem del host desaparece de la tabla de montajes. Es lo que hace a los runtimes OCI (runc, crun, youki) inescapables vía el exploit clásico de chroot. Ver chroot y pivot_root.
+OverlayFS (mount -t overlay) superpone capas read-only (lowerdir) sobre una capa escribible (upperdir), copiando archivos enteros al modificarlos (copy-up a nivel de archivo, no de bloque). Permite que decenas de contenedores compartan una sola imagen base. Detalles en OverlayFS.
+cgroups v2 (/sys/fs/cgroup/) imponen los límites reales: cpu.max, memory.max, pids.max; exponen PSI (*.pressure) para detectar saturación antes del OOM; y ofrecen primitivas operacionales (cgroup.freeze, cgroup.kill) que Docker y Kubernetes usan por debajo. Mucho más en cgroups.
+El runtime (runc) orquesta todos estos mecanismos en el orden correcto — clone, mount, pivot_root, drop capabilities, apply seccomp, execve — leyendo la configuración de un bundle OCI. Docker y containerd son capas de conveniencia encima del runtime.
+Lo que el kernel no sabe
+El kernel no tiene concepto de "contenedor". Solo tiene procesos, namespaces, cgroups y mounts. La palabra "contenedor" es una convención de espacio de usuario — una forma de hablar sobre un proceso configurado de una manera particular.
+Esta distinción importa cuando algo falla: los problemas de contenedores son problemas de Linux. Las herramientas de debugging son las mismas: strace, lsns, nsenter, ip, ss, cat /proc/....
+Evidencia acumulada
+La serie no es solo teoría — a lo largo de las partes ejecutamos experimentos que comprueban cada tesis:
+El escape de chroot funciona, el de pivot_root no. Compilamos escape.c con gcc -static, lo corrimos dentro de un chroot Alpine y aterrizamos en Ubuntu (tres cat /etc/os-release consecutivos confirmaron las transiciones Alpine → Ubuntu → Alpine). Luego repetimos dentro de un mount namespace con pivot_root + umount -l /.old_root: el mismo binario quedó atrapado en Alpine. La tabla de montajes del host ya no existía en ese namespace, así que no había "fuera" al que llegar.
+cgroup.freeze pausa procesos atómicamente. Con un contenedor escribiendo un contador por segundo, echo 1 > cgroup.freeze produjo un gap de 46 segundos reales entre los ticks 104 y 105, aunque docker ps seguía reportando "Up" — Docker y el kernel tienen vistas desacopladas del estado del cgroup cuando manipulas el archivo directamente.
+Los límites de cgroups reaccionan en vivo. stress-ng --vm 1 --vm-bytes 200M contra --memory=128m disparó 374 OOM kills en 30 segundos, visibles creciendo en vivo en memory.events. stress-ng --cpu 4 contra --cpus=0.25 alcanzó el 98% de throttling (nr_throttled/nr_periods = 301/307), con ~1.5 segundos de espera acumulada por cada segundo real.
+"Rootless" con sudo no es rootless. El script test-podman-userns.sh corrió Podman en tres modos (root directo, usuario normal sin sudo, sudoer con sudo). El uid_map de los casos 1 y 3 fue idéntico: 0 0 4294967295 (identity mapping). Solo el caso 2 mostró el mapeo real (0 1001 1 más el subrango de /etc/subuid). Ser sudoer no cambia nada — lo único que importa es el UID efectivo que invoca al runtime.
+Lo que no cubrimos
+seccomp — filtrado de syscalls permitidas a nivel de kernel (el perfil default de Docker bloquea ~40 syscalls).
+AppArmor / SELinux — MAC (Mandatory Access Control) como capa adicional sobre capabilities.
+OCI Image Spec — cómo se empaquetan, firman y distribuyen las imágenes (manifest JSON, media types, registries, content addressability). Cubrimos el filesystem que producen las imágenes en OverlayFS, pero no la spec de distribución.
+Próximos pasos: Pods
+En la siguiente serie veremos cómo Kubernetes agrupa varios contenedores en un Pod. La pregunta clave: si cada contenedor tiene sus propios namespaces, ¿cómo comparten red y filesystem dentro de un Pod?
+La respuesta involucra el pause container (también llamado "infra container"), un proceso mínimo que crea los namespaces compartidos del Pod y los mantiene vivos aunque los containers de aplicación se reinicien. Cuando kubelet crea un Pod, el primer container que arranca siempre es pause — los demás se unen a sus namespaces vía setns(). Ya viste la estructura en acción en la jerarquía de kubepods.slice: cada Pod tiene ≥ 2 scopes en su cgroup — el primero es el pause container.
+# Puedes verlo en cualquier nodo de Kubernetes:
+crictl ps | grep pause
+# O con Docker en modo single-node:
+docker ps | grep pause
+Si entendiste esta serie, entender Pods será natural — son exactamente el mismo mecanismo, con namespaces selectivamente compartidos entre procesos.

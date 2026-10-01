@@ -1,0 +1,78 @@
+Kubernetes for Beginners
+Chapter 3 of 21 · Section 7 of 8
+Who Manages Pods in Production (Deployments, StatefulSets, Jobs)
+In production you'll almost never create a kind: Pod by hand. We said it in the chapter intro: Pods are ephemeral, they die, and nobody comes to revive them on their own. The intelligence that creates, watches, and replaces them lives one level up — in the workload controllers.
+Each one is built for a different usage pattern. Worth knowing all six even if you only use three day-to-day.
+ReplicaSet and Deployment
+The most common pair. A Deployment is what you use 95% of the time when your workload is stateless: an HTTP API, a queue worker, a frontend.
+You declare how many replicas you want of the Pod (replicas: 3).
+The Deployment creates a ReplicaSet underneath, which is what actually watches the N Pods.
+When you change the image, the Deployment creates a new ReplicaSet and rotates Pods between old and new (rolling update).
+If a Pod dies, another starts to maintain N. If the node fails, the scheduler reschedules the lost Pods elsewhere.
+Details come in chapter 4 and the rollout mechanics in chapter 11.
+StatefulSet
+For workloads that need stable identity and per-replica persistent storage: databases (PostgreSQL, Cassandra, MongoDB), message brokers (Kafka, RabbitMQ), quorum systems (etcd, ZooKeeper).
+Pods are named db-0, db-1, db-2 — stable, not random.
+Each Pod gets its own PersistentVolumeClaim that follows it across restarts.
+They start in order (0 before 1, 1 before 2) and shut down in reverse. Critical for clusters that elect a leader.
+Covered in chapter 13.
+DaemonSet
+Guarantees exactly one replica of the Pod per node in the cluster (or on a subset, via nodeSelector).
+Typical cases:
+Logging agents (fluent-bit, vector) collecting local logs.
+Metrics agents (Prometheus's node-exporter).
+Cluster network components: Cilium, Calico, kube-proxy.
+When a node joins the cluster, the DaemonSet creates its Pod there automatically. When a node leaves, the Pod leaves with it.
+Job
+A Job runs a Pod (or several) that finishes: a migration, a data import, a batch compute. Unlike Deployment, the Job is considered "complete" when the Pods exit 0.
+apiVersion: batch/v1
+kind: Job
+metadata:
+name: db-migrate
+spec:
+backoffLimit: 4
+template:
+spec:
+restartPolicy: OnFailure
+containers:
+- name: migrate
+image: myapp-migrations:1.0
+backoffLimit says how many retries on failure. restartPolicy: OnFailure allows retries within the same Pod without recreating it. There are variants for running in parallel (parallelism) or processing a queue with completions.
+CronJob
+A Job on a schedule. Same spec, wrapped in a cron:
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+name: nightly-backup
+spec:
+schedule: "0 2 * * *" # 02:00 UTC every day
+jobTemplate:
+spec:
+template:
+spec:
+restartPolicy: OnFailure
+containers:
+- name: backup
+image: myapp-backup:1.0
+The CronJob controller creates a new Job each time the schedule fires. Production-relevant fields: concurrencyPolicy (what to do if the previous run is still going), startingDeadlineSeconds, and successfulJobsHistoryLimit to avoid piling up old Jobs in etcd.
+Pod by hand: when it's OK
+Three legitimate cases to create a Pod without a controller:
+Local tests with kubectl run or kubectl debug: nobody is going to restart anything, you delete it when done.
+Static Pods: defined as files under /etc/kubernetes/manifests/ on a node, kubelet creates them without going through the apiserver. That's how the control plane components run on kubeadm clusters.
+Learning Kubernetes: the first YAML in the first tutorial you open is a Pod. That's fine.
+Outside of that, if you find yourself writing kind: Pod in production, stop and ask which controller should be managing it.
+How to choose
+A quick question almost always nails it: "what kind of workload is this?".
+Stateless, several identical replicas → Deployment.
+Stateful, stable per-replica identity → StatefulSet.
+One replica per node → DaemonSet.
+Task that finishes → Job.
+Recurring scheduled task → CronJob.
+For the KCNA
+Pod = minimum unit; you never create it by hand in production.
+Deployment / ReplicaSet → stateless, N identical replicas.
+StatefulSet → stable identity + per-replica storage.
+DaemonSet → one per node.
+Job → one-shot run; CronJob → scheduled runs.
+Static Pod → defined on the node's disk, no apiserver involved. That's how kubeadm runs control plane components.
+In the next sub-part we close the chapter with the Pod recap and hand off to chapter 4 (ReplicaSets and Deployments).

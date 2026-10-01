@@ -1,0 +1,36 @@
+Kubernetes for Beginners
+Chapter 1 of 21 · Section 3 of 7
+Worker Nodes: kubelet, kube-proxy, and the Runtime
+If the control plane is the brain, the worker nodes are the arms. It is where your containers finally run — not where they are decided, where they are executed. And as we said at the start of the chapter, a worker node is not a special machine. It is a regular Linux server with three key processes on top.
+Those three processes are:
+kubelet — the Kubernetes agent on the node.
+A container runtime (containerd, CRI-O, …) — the one that actually runs containers.
+kube-proxy — the one that programs the node's network rules.
+Take any of the three away and the node stops being useful to the cluster. But the Linux machine underneath is still the same.
+kubelet: the agent
+The kubelet is the most important process on a worker. Its job is to make sure the Pods assigned to this node are running the way the cluster expects. A reconciler, like the control plane controllers, but with local scope.
+Its loop, simplified, is:
+Register with the apiserver on startup ("hi, I'm node X, I have these resources").
+Watch the apiserver for Pods whose spec.nodeName = X.
+For each Pod that should run here, ask the container runtime to create it.
+For each Pod that should no longer run, ask the runtime to terminate it.
+Every ~10 seconds report Pod and node status back to the apiserver.
+The important detail: kubelet does not know how to run containers on its own. It has no runc logic, no direct kernel knowledge. What it has is a client that speaks CRI (Container Runtime Interface) with the real runtime. We go deep on this in chapter 7.
+Another detail — probes (liveness, readiness, startup) are executed by kubelet. That's why probes are local to the node: they are not a call made by the apiserver. Kubelet runs them from the node where the Pod lives.
+Container runtime: the one that actually runs containers
+The runtime is the program that knows how to turn an OCI image and a spec into a Linux process isolated with namespaces and cgroups. Today the two most common are containerd and CRI-O. Both implement the same interface (CRI), so kubelet doesn't care which one you have.
+What the runtime does, in short:
+Pull the image from the registry if it is not cached.
+Unpack it on the local filesystem (typically via OverlayFS).
+Call runc (or equivalent) to create namespaces, cgroups and chroot, and execute the process.
+Expose metrics and logs of the container to kubelet.
+If you are curious about these pieces from the bottom up, the "What a container really is" tutorial opens them piece by piece.
+kube-proxy: the one that makes Services work
+The third process is kube-proxy. Its job sounds humble but it's critical: programming network rules on the node so that Services work.
+We need to pull a concept forward from chapter 9: in Kubernetes, a Service is a stable virtual IP that points to a set of Pods. When your container does curl http://my-service, packets arrive at the node's network stack with that IP as destination. Someone has to intercept those packets and redirect them to a real Pod IP. That someone is kube-proxy — or rather, the rules it programs (in iptables, ipvs, or nftables, depending on the mode).
+Important: kube-proxy does not handle traffic, it only programs rules. The kernel does the real work of deciding which Pod each packet goes to. If kube-proxy dies, the rules it already programmed keep working; but any new Service, any endpoint change, stops being reflected until it comes back.
+We cover this in depth in chapter 9 (Services). For now, keep this picture: every node has its own kube-proxy, and every kube-proxy keeps its rules in sync with the Services you declared in the cluster.
+How it all fits together
+With these three processes plus a Linux machine, a node becomes a "Kubernetes node". The cluster does not know if it is a bare-metal server, a VM on AWS, or a Raspberry Pi — as long as kubelet can register with the apiserver, there is a compatible runtime, and kube-proxy can program rules, the node participates.
+That, by the way, is another of Kubernetes' promises: hardware heterogeneity. You can have a cluster with nodes of different sizes and architectures, and the scheduler handles the distribution.
+In the next step we put all these pieces to work together: we follow the journey of a request from kubectl apply to a running container. You'll see exactly which process does what and in what order.

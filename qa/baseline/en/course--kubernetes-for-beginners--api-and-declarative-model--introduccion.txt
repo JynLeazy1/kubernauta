@@ -1,0 +1,36 @@
+Kubernetes for Beginners
+Chapter 2 of 21 · Section 1 of 7
+Introduction: The Declarative Contract
+In the previous chapter we saw the topography: which processes run where and how events flow between them. Now we go one layer deeper. There's a word we keep repeating — declarative — that is usually explained poorly. Many tutorials translate it as "you write YAML instead of running commands". Fine as a cliché, but it doesn't capture what it really means or why it matters.
+Being declarative isn't a syntax convention. It's a contract between you and the cluster: you describe the state you want, and the system commits to reaching it and keeping it that way. Everything else — objects, controllers, apiserver, the reconciliation loop — are consequences of that contract.
+Imperative vs declarative: the real contrast
+Say you want to run three replicas of a service.
+In an imperative world you would do something like:
+ssh server1 "docker run -d my-app:v1"
+ssh server2 "docker run -d my-app:v1"
+ssh server3 "docker run -d my-app:v1"
+Three commands, each saying "do this, now, here". If one fails, you find out and retry. If a server dies tomorrow, you find out and you move the container. You are the controller.
+In a declarative world, you write:
+apiVersion: apps/v1
+kind: Deployment
+spec:
+replicas: 3
+# ...
+And hand it to the cluster. You don't say where, how, or when. You say what: "I want 3 replicas of this running". The cluster handles the rest — picking nodes, pulling images, starting containers, and keeping doing it if anything changes. If a node fails, another takes over. If you killed a Pod by hand, the controller recreates it. Your YAML didn't change, your intent still stands.
+Why this matters in distributed systems
+The declarative contract isn't about elegance — it's a practical necessity. In a cluster with hundreds of nodes and thousands of Pods, things fail constantly. Networks drop. Disks fill. Processes crash. An imperative model would require someone (you, a human, or a complex script) to react to every failure in real time. Impossible at scale.
+The declarative model solves that with three properties:
+Idempotency: applying the same YAML twice produces the same state. No matter how many retries.
+Convergence: the system actively works to bring the current state closer to the desired one, loop after loop, until they match.
+Free retries: since the only thing the cluster needs is the desired state, any operation can be retried without thinking twice.
+Those three properties are exactly what you need so a distributed system can survive its own failures. The declarative model is how Kubernetes chose to encode them.
+The price you pay
+In exchange, you lose fine-grained control over when things happen. You ask for "3 replicas"; the scheduler decides when they start, kubelet decides when to pull the image, the runtime decides when it becomes "running". There's no timing guarantee. Only a guarantee that, eventually, the observed state will match the desired one.
+For most workloads, that's an acceptable trade-off. For cases where timing matters — ordered startup, sequential dependencies — there are specific primitives (init containers, StatefulSets, readinessGates) we'll see later.
+What we'll cover in this chapter
+Objects, resources, and the reconciliation loop: how each thing is represented in the cluster and what spec vs status means.
+API groups, versions, and the anatomy of an object: how to read a YAML like an expert, what apps/v1 means, and why there are alpha, beta, and stable versions.
+Controllers: the pattern that makes the whole model work.
+CRDs and extensibility: how the API isn't fixed — you can add your own types.
+kubectl, --dry-run, and server-side apply: what changes when you work with the declarative model from the command line.
+By the end, when someone says "Kubernetes is declarative", you won't nod out of reflex — you'll know exactly what that implies at the API, controller, and distributed-systems levels.

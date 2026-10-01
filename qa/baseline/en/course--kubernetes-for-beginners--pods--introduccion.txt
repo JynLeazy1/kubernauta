@@ -1,0 +1,26 @@
+Kubernetes for Beginners
+Chapter 3 of 21 · Section 1 of 8
+Introduction: A Pod Is Not a Container
+In the previous two chapters we saw the topography of the cluster (chapter 1) and the declarative contract of its API (chapter 2). With that foundation, it's time to open the first real object. And as the official documentation says, the Pod is "the smallest and most fundamental computable unit" in Kubernetes.
+That line sounds like a slogan until you understand why it's true — and why, if you take it seriously, it changes how you think about everything else.
+A Pod is not a container
+Nearly every tutorial explaining what a Pod is starts with: "it's a container, but with extras". It's a dangerous simplification. A Pod is not a container: it's a shared environment where one or more containers that share network, storage, and lifecycle can run.
+Mechanically, a Pod is a set of Linux namespaces — network, IPC, sometimes PID — that Kubernetes creates before bringing up your application containers. Those namespaces are what make the containers inside the Pod look as if they were running on the same virtual machine: they can talk over localhost, share volumes, see the same files. They are effectively siblings.
+Kubelet builds that environment with an auxiliary, nearly invisible container called pause, whose only job is to keep the namespaces alive while your application containers are created, die, and restart on top.
+Deep dive
+All the mechanics — the pause container, how kubelet assembles the Pod step by step, how the CNI assigns it an IP — are covered in depth in the What is a Pod? tutorial. This chapter stays at the KCNA level: what you need to know to pass the exam and to have a correct mental model for working with Pods.
+Why the distinction matters
+If you understood a Pod as "a container by another name", several Kubernetes facts would feel arbitrary:
+Why you can't "migrate" a container between Pods. (Because a container lives inside a specific set of namespaces; pulling it out of there would be destroying it.)
+Why all containers in a Pod share the same IP. (Because they share the network namespace.)
+Why killing a Pod kills all its containers together. (Because their lifecycle is bound to the namespaces'.)
+Why a sidecar "just works": it can intercept traffic or read files from the main container without special permissions. (Because they're in the same namespaces.)
+Once you see the Pod for what it really is — a shared namespace environment — those facts stop being weird rules and become obvious consequences.
+What we'll cover in this chapter
+Anatomy of the spec: what a Pod manifest looks like inside — containers, image, ports, env, resources, volumes.
+Single-container vs multi-container: when it makes sense to put more than one container in a Pod and when it's a mistake.
+Sidecars, init containers, and ambassadors: the classic patterns, with examples, plus the native sidecar that landed in 1.29.
+Lifecycle, probes, and restartPolicy: phases, conditions, liveness/readiness/startup, and who decides to restart what.
+Essential commands: get, describe, logs, exec — your minimum kit to work with Pods.
+Who manages Pods in production: Deployment, StatefulSet, DaemonSet, Job, CronJob. Spoiler: you won't create Pods by hand.
+By the end, you'll be able to read any Pod YAML, explain every field, and understand why each field is there. More importantly, you'll have the correct mental model for every chapter that follows — because every other object we'll see leans on this idea of "Pod as shared environment".

@@ -1,0 +1,75 @@
+February 12, 2026
+How to Enable IPVS Mode in kube-proxy
+kube-proxy
+ipvs
+networking
+performance
+Deprecated
+IPVS was deprecated in Kubernetes 1.35 and may be removed in a future release. For new installations, the recommended mode is nftables (GA since 1.33, requires Linux 5.13+). This post documents the enablement process for existing clusters that need to migrate gradually.
+Why consider IPVS
+In iptables mode, each packet traverses the rules in the KUBE-SERVICES chain linearly until it finds the matching one. With ten Services that is trivial. With ten thousand, every new connection evaluates thousands of rules before reaching the right DNAT. IPVS (IP Virtual Server) is a kernel module designed specifically for load balancing: it uses a hash table where lookup is O(1) regardless of how many Services exist.
+Prerequisites: kernel modules
+IPVS requires four kernel modules. Verify they are loaded on every node before changing the configuration:
+lsmod | grep -E "^ip_vs"
+# ip_vs_sh 12288 0
+# ip_vs_wrr 12288 0
+# ip_vs_rr 12288 0
+# ip_vs 221184 6 ip_vs_rr,ip_vs_sh,ip_vs_wrr
+If they are not loaded, each module must be loaded separately — modprobe does not guarantee loading multiple modules in a single call (trust me, I tried):
+sudo modprobe ip_vs
+sudo modprobe ip_vs_rr
+sudo modprobe ip_vs_wrr
+sudo modprobe ip_vs_sh
+lsmod | grep -E "^ip_vs"
+# ip_vs_sh 12288 0
+# ip_vs_wrr 12288 0
+# ip_vs_rr 12288 0
+# ip_vs 221184 6 ip_vs_rr,ip_vs_sh,ip_vs_wrr
+# Persist across reboots
+sudo cat >> /etc/modules-load.d/ipvs.conf << EOF
+ip_vs
+ip_vs_rr
+ip_vs_wrr
+ip_vs_sh
+EOF
+You also need the nf_conntrack module, which is usually loaded by default, and the ipvsadm binary for inspection:
+sudo apt-get install -y ipvsadm
+Edit the kube-proxy ConfigMap
+The mode is configured in the mode field of the kube-proxy ConfigMap in the kube-system namespace. Edit it directly:
+kubectl edit configmap kube-proxy -n kube-system
+Find the mode field and change it from an empty string to "ipvs". Also enable strictARP: true in the ipvs section — this is required to prevent traffic from leaking through ARP on nodes with multiple interfaces:
+mode: "ipvs"
+ipvs:
+scheduler: ""
+strictARP: true
+syncPeriod: 0s
+Restart the kube-proxy pods
+kube-proxy is a DaemonSet — it does not reload automatically on ConfigMap changes. You need to delete the pods so they are recreated with the new configuration:
+kubectl rollout restart daemonset kube-proxy -n kube-system
+kubectl rollout status daemonset kube-proxy -n kube-system
+# Waiting for daemon set "kube-proxy" rollout to finish: 0 out of 2 new pods have been updated...
+# daemon set "kube-proxy" successfully rolled out
+Verify the change
+The definitive confirmation is ipvsadm -Ln — if it shows virtual servers, IPVS is active:
+sudo ipvsadm -Ln
+# IP Virtual Server version 1.2.1 (size=4096)
+# Prot LocalAddress:Port Scheduler Flags
+# -> RemoteAddress:Port Forward Weight ActiveConn InActConn
+# TCP 10.96.0.1:443 rr
+# -> 172.30.1.2:6443 Masq 1 1 6
+# TCP 10.96.0.10:53 rr
+# -> 192.168.1.2:53 Masq 1 0 0
+# -> 192.168.1.3:53 Masq 1 0 0
+# TCP 10.96.0.10:9153 rr
+# -> 192.168.1.2:9153 Masq 1 0 0
+# -> 192.168.1.3:9153 Masq 1 0 0
+# TCP 10.110.171.208:80 rr
+# -> 192.168.1.4:80 Masq 1 0 0
+# -> 192.168.1.5:80 Masq 1 0 0
+# -> 192.168.1.6:80 Masq 1 0 0
+# UDP 10.96.0.10:53 rr
+# -> 192.168.1.2:53 Masq 1 0 0
+# -> 192.168.1.3:53 Masq 1 0 0
+Each Service appears as a virtual server with its ClusterIP and port. Below it, each Pod backend appears as a real server with its IP and the assigned scheduler — rr (round-robin) by default. The example cluster has four Services: the Kubernetes API server at 10.96.0.1:443, CoreDNS at 10.96.0.10 with TCP and UDP entries for port 53, the CoreDNS metrics endpoint on 9153, and the nginx Service at 10.110.171.208:80 with its three Pod backends. You can change the scheduler to lc (least connections) or sh (source hash) by editing the scheduler field in the ConfigMap and doing another rollout restart.
+Reverting if something goes wrong
+If you run into problems, reverting is the inverse process: edit the ConfigMap, set mode: "" again, and do a rollout restart of the DaemonSet. The iptables rules are automatically regenerated and the IPVS entries disappear.

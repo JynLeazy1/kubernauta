@@ -1,0 +1,108 @@
+Kubernetes for Beginners
+Chapter 3 of 21 · Section 2 of 8
+Spec Anatomy: What You Are Actually Declaring
+You know what a Pod is conceptually. Now let's drop down to the YAML: when someone hands you a manifest, what are you actually reading, what's required and what's optional, and why each field is where it is.
+The minimum structure
+apiVersion: v1
+kind: Pod
+metadata:
+name: nginx
+spec:
+containers:
+- name: nginx
+image: nginx:1.27
+Those 7 lines are a valid Pod that Kubernetes accepts and brings up. Worth a pause: there's no replicas, no selector, no strategy. Those live in higher-level objects (Deployment, StatefulSet, etc.) — in the Pod proper, your job boils down to declaring which containers run and how.
+Note that apiVersion: v1 has no group. As we saw in chapter 2, Pod lives in the core group, the only one with no prefix in its apiVersion.
+The containers section
+It's the only thing truly required inside spec. An array of one or more containers, each with its own block:
+spec:
+containers:
+- name: web
+image: nginx:1.27
+ports:
+- containerPort: 80
+env:
+- name: ENV
+value: production
+resources:
+requests:
+cpu: 100m
+memory: 128Mi
+limits:
+cpu: 500m
+memory: 256Mi
+volumeMounts:
+- name: config
+mountPath: /etc/nginx/conf.d
+The most-used fields:
+name: identifier within the Pod (locally unique only — it doesn't need to be unique cluster-wide).
+image: the OCI image, with an explicit tag. Never use :latest in production — save it for demos.
+ports: ports the container exposes. Informational only — Kubernetes doesn't do port mapping like Docker does.
+env: environment variables. Can be literal (value) or reference Secrets/ConfigMaps via valueFrom.
+resources: requests (what the scheduler guarantees) and limits (the cap). We cover this in depth in chapter 8.
+volumeMounts: mount a Pod-level volume at a path inside the container. Requires the volume to be declared in spec.volumes.
+Volumes: declaration vs mount
+There are two separate pieces:
+spec:
+containers:
+- name: app
+image: myapp:1.0
+volumeMounts:
+- name: config # reference to the volume
+mountPath: /etc/app
+volumes:
+- name: config # volume declaration
+configMap:
+name: app-config
+spec.volumes declares which volumes exist in the Pod. Each container picks what to mount and where with volumeMounts. This separation lets you share the same volume across containers in the Pod — writing to a volume from one container and reading it from another is exactly how most sidecars work.
+The most common volume types (configMap, secret, emptyDir, persistentVolumeClaim) are covered in chapter 12.
+Pod-level fields (outside containers)
+Several important things live in spec but outside the containers array:
+restartPolicy: what to do when a container exits. Default Always. Jobs use OnFailure or Never. We cover this in sub-part 5.
+nodeSelector, affinity, tolerations: hints for the scheduler. Detail in chapter 8.
+serviceAccountName: which identity the Pod uses to talk to the apiserver. Default is the namespace's default. Detail in chapter 14.
+securityContext: security options (runAsUser, runAsNonRoot, fsGroup…). One at the Pod level and one per container.
+terminationGracePeriodSeconds: how long containers are given to shut down when the Pod is deleted (default 30s).
+A full manifest for reference
+apiVersion: v1
+kind: Pod
+metadata:
+name: web
+namespace: default
+labels:
+app: web
+tier: frontend
+spec:
+restartPolicy: Always
+serviceAccountName: default
+terminationGracePeriodSeconds: 30
+containers:
+- name: nginx
+image: nginx:1.27
+ports:
+- containerPort: 80
+env:
+- name: NGINX_PORT
+value: "80"
+resources:
+requests:
+cpu: 100m
+memory: 128Mi
+limits:
+cpu: 500m
+memory: 256Mi
+volumeMounts:
+- name: config
+mountPath: /etc/nginx/conf.d
+readOnly: true
+livenessProbe:
+httpGet:
+path: /healthz
+port: 80
+initialDelaySeconds: 10
+periodSeconds: 10
+volumes:
+- name: config
+configMap:
+name: nginx-config
+This manifest is already useful for the KCNA: if you can explain what every line does, you're in good shape. In the next sub-part we open the multi-container case and when it's worth using.

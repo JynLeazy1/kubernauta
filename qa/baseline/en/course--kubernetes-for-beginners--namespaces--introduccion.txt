@@ -1,0 +1,44 @@
+Kubernetes for Beginners
+Chapter 6 of 21 · Section 1 of 7
+Introduction: The Problem They Solve
+What is a Namespace?
+A Namespace is a mechanism for logical isolation within a cluster. Resources inside a namespace have unique names among themselves, but the same name can exist in different namespaces.
+Default namespaces
+default — the unconfigured default namespace.
+kube-system — system components (API server, scheduler, etc.).
+kube-public — publicly readable data.
+kube-node-lease — node heartbeats.
+Creating and using namespaces
+kubectl create namespace production
+kubectl get pods -n production
+kubectl apply -f my-app.yaml -n production
+Resource Quotas
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+name: team-a-quota
+namespace: team-a
+spec:
+hard:
+requests.cpu: "4"
+requests.memory: 8Gi
+limits.cpu: "8"
+limits.memory: 16Gi
+pods: "20"
+LimitRange
+apiVersion: v1
+kind: LimitRange
+metadata:
+name: defaults
+namespace: team-a
+spec:
+limits:
+- type: Container
+defaultRequest:
+cpu: 100m
+memory: 128Mi
+default:
+cpu: 500m
+memory: 512Mi
+When NOT to use namespaces
+Namespaces provide logical isolation, not physical. For strong isolation between tenants, consider separate clusters or solutions like vCluster.
